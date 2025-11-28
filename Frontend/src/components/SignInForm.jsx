@@ -1,19 +1,22 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff } from "lucide-react";
+// Explicit kiterjesztés az importban
+import { useAuth } from "../context/AuthContext.jsx";
 
 export default function SignInForm() {
     const [identifier, setIdentifier] = useState("");
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [error, setError] = useState("");
-    const [success, setSuccess] = useState("");
+    const [loading, setLoading] = useState(false);
+
     const navigate = useNavigate();
+    const { login } = useAuth();
 
     async function handleLogin(e) {
         e.preventDefault();
         setError("");
-        setSuccess("");
 
         if (!identifier.trim() || !password.trim()) {
             setError("Please fill in all fields!");
@@ -21,6 +24,7 @@ export default function SignInForm() {
         }
 
         try {
+            setLoading(true);
             const res = await fetch("http://localhost:5000/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -28,61 +32,41 @@ export default function SignInForm() {
             });
 
             const data = await res.json();
-            console.log("Status code:", res.status);
-            console.log("Response data:", data);
 
             if (res.ok) {
-                setSuccess("Login successful! Redirecting...");
-                localStorage.setItem("token", data.token); // optional
-                setTimeout(() => {
-                    navigate("/"); //
-                }, 1500);
+                // SIKERES LOGIN: Elmentjük az adatokat a contextbe
+                login(data.user, data.token);
+                // Átirányítás a főoldalra
+                navigate("/");
             } else {
-                setError(data.message || "Invalid username/email or password.");
+                setError(data.message || "Invalid credentials.");
             }
         } catch (err) {
             console.error(err);
             setError("Failed to connect to the server.");
+        } finally {
+            setLoading(false);
         }
     }
 
     return (
         <div className="flex flex-row min-h-screen">
-            {/* Left image */}
-            <img
-                src="./src/assets/icons/SignUpPlant.png"
-                alt="Plant"
-                className="h-auto object-cover hidden md:block"
-            />
+            {/* Kép */}
+            <img src="/src/assets/icons/SignUpPlant.png" alt="Plant" className="h-auto object-cover hidden md:block" />
 
-            {/* Right form section */}
             <div className="flex-[3.3] bg-garden flex items-center justify-center px-6 py-10">
-                <form
-                    onSubmit={handleLogin}
-                    className="w-full max-w-md space-y-6"
-                >
+                <form onSubmit={handleLogin} className="w-full max-w-md space-y-6">
                     <h1 className="text-2xl font-normal text-gray-900">SoilSync</h1>
                     <h2 className="text-3xl font-bold whitespace-nowrap text-left text-landingPageIcons">
                         Welcome back — Let’s grow again!
                     </h2>
 
-                    {/* Error and success messages */}
                     {error && (
-                        <div className="bg-red-100 text-red-700 px-4 py-2 rounded-lg text-sm">
-                            {error}
-                        </div>
-                    )}
-                    {success && (
-                        <div className="bg-emerald-100 text-emerald-700 px-4 py-2 rounded-lg text-sm">
-                            {success}
-                        </div>
+                        <div className="bg-red-100 text-red-700 px-4 py-2 rounded-lg text-sm">{error}</div>
                     )}
 
-                    {/* Identifier (email or username) */}
                     <div>
-                        <label className="block mb-2 font-semibold text-landingPageIcons">
-                            Email or Username
-                        </label>
+                        <label className="block mb-2 font-semibold text-landingPageIcons">Email or Username</label>
                         <input
                             type="text"
                             value={identifier}
@@ -92,63 +76,36 @@ export default function SignInForm() {
                         />
                     </div>
 
-                    {/* Password */}
                     <div>
-                        <label className="block mb-2 font-semibold text-landingPageIcons">
-                            Password
-                        </label>
+                        <label className="block mb-2 font-semibold text-landingPageIcons">Password</label>
                         <div className="relative">
                             <input
                                 type={showPassword ? "text" : "password"}
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="w-full border rounded-lg px-4 py-2 pr-10
-                     focus:outline-none focus:ring-2 focus:ring-landingPageIcons
-                     text-gray-800 placeholder-gray-400"
+                                className="w-full border rounded-lg px-4 py-2 pr-10 focus:outline-none focus:ring-2 focus:ring-landingPageIcons"
                                 placeholder="••••••••"
                             />
                             <button
                                 type="button"
                                 onClick={() => setShowPassword(!showPassword)}
-                                className="absolute inset-y-0 right-3 flex items-center text-landingPageIcons
-                     hover:text-darkLandingPageIcons
-                     transition-all duration-200 hover:scale-110"
+                                className="absolute inset-y-0 right-3 flex items-center text-landingPageIcons"
                             >
-                                {showPassword ? (
-                                    <EyeOff size={20} strokeWidth={2} />
-                                ) : (
-                                    <Eye size={20} strokeWidth={2} />
-                                )}
+                                {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                             </button>
                         </div>
                     </div>
 
-                    <p className="text-right text-sm">
-                        <Link
-                            to="/forgot-password"
-                            className="text-landingPageIcons hover:text-darkLandingPageIcons font-medium"
-                            >
-                            Forgot password?
-                        </Link>
-                    </p>
                     <button
                         type="submit"
-                        className="block text-center w-full bg-landingPageIcons hover:bg-darkLandingPageIcons
-                    text-white font-semibold py-2 px-4 rounded-lg transition-all"
+                        disabled={loading}
+                        className="block text-center w-full bg-landingPageIcons hover:bg-darkLandingPageIcons text-white font-semibold py-2 px-4 rounded-lg transition-all disabled:opacity-70"
                     >
-                        Sign In
+                        {loading ? "Signing In..." : "Sign In"}
                     </button>
 
-
-                    {/* Sign up redirect */}
                     <p className="text-center text-gray-700 text-sm">
-                        Don’t have an account?{" "}
-                        <Link
-                            to="/register"
-                            className="text-landingPageIcons font-semibold hover:underline"
-                        >
-                            Sign Up
-                        </Link>
+                        Don’t have an account? <Link to="/register" className="text-landingPageIcons font-semibold hover:underline">Sign Up</Link>
                     </p>
                 </form>
             </div>
