@@ -1,330 +1,289 @@
 import { useEffect, useState } from "react";
+import { useParams, Link } from "react-router-dom";
 
-export default function PlantList() {
-    const [plants, setPlants] = useState([]);
+export default function PlantDetails() {
+    const { id } = useParams();
+    const [plant, setPlant] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [search, setSearch] = useState("");
-    const [category, setCategory] = useState("");
-    const [climat, setClimat] = useState("");
-    const [page, setPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
-    const [total, setTotal] = useState(0);
-    const [selectedPlant, setSelectedPlant] = useState(null); // 👈 modal state
-    const limit = 20;
+    const [error, setError] = useState("");
 
-    async function fetchPlants() {
-        setLoading(true);
-        const params = new URLSearchParams();
-        params.append("page", page);
-        params.append("limit", limit);
-        if (search) params.append("search", search);
-        if (category) params.append("category", category);
-        if (climat) params.append("climat", climat);
-
-        const res = await fetch(`http://localhost:5000/plants?${params.toString()}`);
-        const data = await res.json();
-
-        setPlants(data.data || []);
-        setTotalPages(data.totalPages || 1);
-        setTotal(data.total || 0);
-        setLoading(false);
-    }
+    const [careGuides, setCareGuides] = useState([]);
+    const [careLoading, setCareLoading] = useState(true);
 
     useEffect(() => {
-        fetchPlants();
-    }, [page]);
+        async function fetchPlant() {
+            try {
+                setLoading(true);
+                setError("");
 
-    function handleFilter() {
-        setPage(1);
-        fetchPlants();
+                const res = await fetch(`http://localhost:5000/plants/${id}`);
+                if (!res.ok) throw new Error("Plant not found");
+                const data = await res.json();
+                setPlant(data);
+            } catch (err) {
+                console.error("❌ Error fetching plant details:", err);
+                setError(err.message || "Error while fetching plant details.");
+            } finally {
+                setLoading(false);
+            }
+        }
+
+        async function fetchCareGuides() {
+            try {
+                setCareLoading(true);
+                const res = await fetch(`http://localhost:5000/plants/${id}/guides`);
+                const data = await res.json();
+                if (data?.data?.length > 0) {
+                    setCareGuides(data.data[0].section || []);
+                } else {
+                    setCareGuides([]);
+                }
+            } catch (err) {
+                console.error("❌ Error fetching care guides:", err);
+            } finally {
+                setCareLoading(false);
+            }
+        }
+
+        fetchPlant();
+        fetchCareGuides();
+    }, [id]);
+
+    if (loading) {
+        return (
+            <div className="max-w-5xl mx-auto px-4 py-10">
+                <p className="text-center text-emerald-700 text-lg">
+                    Loading plant details...
+                </p>
+            </div>
+        );
     }
 
-    function handlePageClick(num) {
-        if (num >= 1 && num <= totalPages) setPage(num);
+    if (error || !plant) {
+        return (
+            <div className="max-w-5xl mx-auto px-4 py-10">
+                <p className="text-center text-red-600 mb-4">
+                    {error || "Plant not found."}
+                </p>
+                <div className="text-center">
+                    <Link
+                        to="/plants"
+                        className="inline-block px-4 py-2 rounded-lg bg-landingPageIcons text-white hover:bg-darkLandingPageIcons transition"
+                    >
+                        Back to Plant Library
+                    </Link>
+                </div>
+            </div>
+        );
     }
 
-    const startItem = (page - 1) * limit + 1;
-    const endItem = Math.min(page * limit, total);
+    const imageUrl =
+        plant?.default_image?.regular_url ||
+        plant?.default_image?.medium_url ||
+        plant?.default_image?.small_url ||
+        "https://via.placeholder.com/1200x600?text=No+Image";
+
+    const latinName = Array.isArray(plant.scientific_name)
+        ? plant.scientific_name.join(", ")
+        : plant.scientific_name;
+
+    const commonName = plant.common_name || latinName || "Unknown plant";
+
+    const otherNames = Array.isArray(plant.other_name)
+        ? plant.other_name
+        : plant.other_name ? [plant.other_name] : [];
 
     return (
-        <div className="min-h-screen bg-emerald-50 pt-20 px-6">
-            <h1 className="text-3xl font-bold text-center mb-8 text-emerald-700">
-                Plant Collection
-            </h1>
+        <div className="min-h-screen bg-emerald-50">
+            <div className="max-w-5xl mx-auto pb-12">
 
-            {/* 🔍 Filters */}
-            <div className="flex flex-wrap gap-4 justify-center mb-8">
-                <input
-                    type="text"
-                    placeholder="Search by name..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="border border-emerald-300 rounded-lg px-4 py-2 w-64"
-                />
-                <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    className="border border-emerald-300 rounded-lg px-4 py-2"
-                >
-                    <option value="">Category</option>
-                    <option value="Fern">Fern</option>
-                    <option value="Succulent">Succulent</option>
-                    <option value="Palm">Palm</option>
-                </select>
-                <select
-                    value={climat}
-                    onChange={(e) => setClimat(e.target.value)}
-                    className="border border-emerald-300 rounded-lg px-4 py-2"
-                >
-                    <option value="">Climate</option>
-                    <option value="Tropical">Tropical</option>
-                    <option value="Temperate">Temperate</option>
-                    <option value="Desert">Desert</option>
-                </select>
-                <button
-                    onClick={handleFilter}
-                    className="bg-landingPageIcons hover:bg-darkLandingPageIcons text-white px-4 py-2 rounded-lg transition"
-                >
-                    Apply Filters
-                </button>
-            </div>
-
-            {/* Page Info */}
-            {!loading && (
-                <p className="text-center text-gray-600 mb-4">
-                    Showing <span className="font-semibold text-emerald-700">{startItem}</span>–
-                    <span className="font-semibold text-emerald-700">{endItem}</span> of{" "}
-                    <span className="font-semibold text-emerald-700">{total}</span> plants
-                </p>
-            )}
-
-            {/* 🌱 Plant Grid */}
-            {loading ? (
-                <p className="text-center text-emerald-700">Loading plants...</p>
-            ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                    {plants.map((plant, index) => (
-                        <div
-                            key={index}
-                            onClick={() => setSelectedPlant(plant)}
-                            className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-lg transition-all cursor-pointer hover:scale-[1.02]"
-                        >
-                            <img
-                                src={plant.Img}
-                                alt={plant["Latin name"]}
-                                className="w-full h-48 object-cover"
-                            />
-                            <div className="p-4">
-                                <h3 className="font-bold text-lg text-emerald-700">
-                                    {plant["Common name"]?.[0] || plant["Latin name"]}
-                                </h3>
-                                <p className="text-gray-600 italic text-sm">{plant["Latin name"]}</p>
-                                <p className="text-gray-500 text-xs mt-2">
-                                    {plant.Climat} | {plant.Categories}
-                                </p>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            /* replace the modal block in PlantList.jsx with the following */
-            {selectedPlant && (
-                <div
-                    className="fixed inset-0 bg-black/50 backdrop-blur-sm flex justify-center items-start z-50 p-4 overflow-y-auto"
-                    onClick={() => setSelectedPlant(null)}
-                >
-                    <div
-                        className="relative bg-white rounded-3xl shadow-2xl w-full max-w-5xl overflow-hidden mt-12"
-                        onClick={(e) => e.stopPropagation()}
+                {/* Back link */}
+                <div className="px-4 pt-6">
+                    <Link
+                        to="/plants"
+                        className="inline-flex items-center text-sm text-emerald-700 hover:text-emerald-900"
                     >
-                        {/* COVER / HERO */}
-                        <div className="relative h-56 md:h-72 w-full bg-gray-200">
-                            {/* background image (cover) */}
-                            <div
-                                className="absolute inset-0 bg-cover bg-center"
-                                style={{
-                                    backgroundImage: `linear-gradient(to bottom, rgba(2,6,23,0.25), rgba(2,6,23,0.25)), url(${selectedPlant.Img})`,
-                                }}
-                                aria-hidden="true"
-                            />
+                        ← Back to Plant Library
+                    </Link>
+                </div>
 
-                            {/* floating round thumbnail */}
-                            <div className="absolute left-1/2 -bottom-12 transform -translate-x-1/2">
-                                <div className="w-28 h-28 md:w-36 md:h-36 rounded-full overflow-hidden border-4 border-white shadow-lg bg-white">
-                                    <img
-                                        src={selectedPlant.Img}
-                                        alt={selectedPlant["Latin name"]}
-                                        className="w-full h-full object-cover"
-                                    />
-                                </div>
-                            </div>
-
-                            {/* top-right small actions */}
-                            <div className="absolute top-3 right-4 flex gap-3">
-                                <button
-                                    onClick={() => { /* optional: favorite handler */ }}
-                                    className="bg-white/90 px-3 py-1 rounded-full shadow-sm text-sm font-semibold text-landingPageIcons hover:bg-white"
-                                >
-                                    ★ Favorite
-                                </button>
-                                <button
-                                    onClick={() => navigator.clipboard?.writeText(window.location.href)}
-                                    className="bg-white/90 px-3 py-1 rounded-full shadow-sm text-sm font-semibold text-gray-700 hover:bg-white"
-                                >
-                                    Share
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* MAIN CONTENT */}
-                        <div className="px-6 md:px-10 pt-16 pb-8">
-                            <div className="max-w-4xl mx-auto">
-                                {/* Title row */}
-                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                                    <div>
-                                        <h2 className="text-3xl md:text-4xl font-extrabold text-landingPageIcons">
-                                            {selectedPlant["Common name"]?.[0] || selectedPlant["Latin name"]}
-                                        </h2>
-                                        <p className="text-gray-600 italic mt-1">{selectedPlant["Latin name"]}</p>
-                                    </div>
-
-                                    <div className="flex items-center gap-3">
-              <span className="px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full text-sm font-semibold">
-                {selectedPlant.Climat || "Unknown climate"}
-              </span>
-                                        <a
-                                            href={selectedPlant.Url || selectedPlant["Buy link"] || "#"}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                            className="inline-block bg-landingPageIcons hover:bg-darkLandingPageIcons text-white px-4 py-2 rounded-lg text-sm font-semibold transition"
-                                        >
-                                            Buy / Source
-                                        </a>
-                                    </div>
-                                </div>
-
-                                {/* GRID: Description + Right column cards */}
-                                <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-                                    {/* LEFT: big description (spans 2 cols on large) */}
-                                    <div className="lg:col-span-2 space-y-6">
-                                        <section>
-                                            <h3 className="text-lg font-semibold text-emerald-700 mb-2">Description</h3>
-                                            <p className="text-gray-700 leading-relaxed">
-                                                {selectedPlant.Description || "No description available."}
-                                            </p>
-                                        </section>
-
-                                        <section>
-                                            <h3 className="text-lg font-semibold text-emerald-700 mb-2">Care tips</h3>
-                                            <ul className="list-disc list-inside text-gray-700 space-y-1">
-                                                {/* use fields if present, otherwise show generic tips */}
-                                                {selectedPlant.CareTips ? (
-                                                    selectedPlant.CareTips.map((t, i) => <li key={i}>{t}</li>)
-                                                ) : (
-                                                    <>
-                                                        <li>Place in bright, indirect light.</li>
-                                                        <li>Water when the top 2–3 cm of soil are dry.</li>
-                                                        <li>Use well-draining soil and avoid waterlogging.</li>
-                                                    </>
-                                                )}
-                                            </ul>
-                                        </section>
-
-                                        <section>
-                                            <h3 className="text-lg font-semibold text-emerald-700 mb-2">Diseases & pests</h3>
-                                            <div className="text-gray-700">
-                                                {selectedPlant.Pests || selectedPlant.Diseases ? (
-                                                    <ul className="list-disc list-inside space-y-1">
-                                                        {(selectedPlant.Pests || []).map((p, i) => <li key={`p-${i}`}>{p}</li>)}
-                                                        {(selectedPlant.Diseases || []).map((d, i) => <li key={`d-${i}`}>{d}</li>)}
-                                                    </ul>
-                                                ) : (
-                                                    <p>No known common issues listed. Keep an eye out for overwatering and scale.</p>
-                                                )}
-                                            </div>
-                                        </section>
-
-                                        {/* Where to buy (multiple sources if exist) */}
-                                        <section>
-                                            <h3 className="text-lg font-semibold text-emerald-700 mb-2">Where to buy</h3>
-                                            <div className="flex flex-col gap-3">
-                                                {selectedPlant.Url ? (
-                                                    <a
-                                                        className="flex items-center justify-between gap-3 p-3 rounded-lg border border-gray-200 hover:shadow-sm"
-                                                        href={selectedPlant.Url}
-                                                        target="_blank"
-                                                        rel="noreferrer"
-                                                    >
-                                                        <div>
-                                                            <p className="font-semibold">{new URL(selectedPlant.Url).hostname}</p>
-                                                            <p className="text-sm text-gray-500 truncate">{selectedPlant.Url}</p>
-                                                        </div>
-                                                        <span className="text-landingPageIcons font-semibold">Open</span>
-                                                    </a>
-                                                ) : (
-                                                    <p className="text-gray-600">No vendor links available for this plant.</p>
-                                                )}
-                                            </div>
-                                        </section>
-                                    </div>
-
-                                    {/* RIGHT: small facts cards */}
-                                    <aside className="space-y-4">
-                                        <div className="bg-emerald-50 rounded-xl p-4">
-                                            <h4 className="text-sm font-semibold text-landingPageIcons">Family</h4>
-                                            <p className="text-gray-700">{selectedPlant.Family || "N/A"}</p>
-                                        </div>
-
-                                        <div className="bg-emerald-50 rounded-xl p-4">
-                                            <h4 className="text-sm font-semibold text-landingPageIcons">Light</h4>
-                                            <p className="text-gray-700">{selectedPlant.Light || "Moderate"}</p>
-                                        </div>
-
-                                        <div className="bg-emerald-50 rounded-xl p-4">
-                                            <h4 className="text-sm font-semibold text-landingPageIcons">Watering</h4>
-                                            <p className="text-gray-700">{selectedPlant.Watering || "Regular"}</p>
-                                        </div>
-
-                                        <div className="bg-emerald-50 rounded-xl p-4">
-                                            <h4 className="text-sm font-semibold text-landingPageIcons">Origin</h4>
-                                            <p className="text-gray-700">{selectedPlant.Origin || "Unknown"}</p>
-                                        </div>
-                                    </aside>
-                                </div>
-
-                                {/* Similar plants (simple row) */}
-                                <div className="mt-8">
-                                    <h4 className="text-md font-semibold text-gray-700 mb-3">Similar plants</h4>
-                                    <div className="flex gap-3 overflow-x-auto pb-2">
-                                        {/* show up to 6 similar by category (client-side heuristic) */}
-                                        {plants
-                                            .filter((p) => p.Categories === selectedPlant.Categories && p.id !== selectedPlant.id)
-                                            .slice(0, 6)
-                                            .map((p) => (
-                                                <div
-                                                    key={p.id}
-                                                    onClick={() => setSelectedPlant(p)}
-                                                    className="min-w-[150px] bg-white rounded-xl shadow-sm overflow-hidden cursor-pointer hover:shadow-md"
-                                                >
-                                                    <img src={p.Img} alt={p["Latin name"]} className="w-full h-24 object-cover" />
-                                                    <div className="p-2 text-sm">
-                                                        <p className="font-semibold text-emerald-700 truncate">{p["Common name"]?.[0] || p["Latin name"]}</p>
-                                                        <p className="text-gray-500 text-xs truncate">{p.Climat}</p>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        { /* fallback if none */ }
-                                        {plants.filter((p) => p.Categories === selectedPlant.Categories && p.id !== selectedPlant.id).length === 0 && (
-                                            <p className="text-gray-500">No similar plants found.</p>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
+                {/* Hero */}
+                <div className="mt-4 mx-4 md:mx-0 bg-white rounded-3xl shadow-md overflow-hidden">
+                    <div className="relative h-64 md:h-80 lg:h-96">
+                        <img src={imageUrl} alt={commonName} className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                        <div className="absolute bottom-4 left-4 md:bottom-6 md:left-6 text-white">
+                            <h1 className="text-2xl md:text-3xl font-bold drop-shadow">{commonName}</h1>
+                            {latinName && (
+                                <p className="italic text-sm md:text-base opacity-90">{latinName}</p>
+                            )}
                         </div>
                     </div>
+
+                    {/* Content */}
+                    <div className="p-4 md:p-6 lg:p-8">
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+                            {/* Left Side */}
+                            <div className="md:col-span-2 space-y-4">
+
+                                {/* Basic info */}
+                                <div>
+                                    <h2 className="text-lg font-semibold text-emerald-800 mb-2">
+                                        Basic information
+                                    </h2>
+
+                                    <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 space-y-2 text-sm md:text-base">
+
+                                        {plant.family && <p><strong>Family:</strong> {plant.family}</p>}
+                                        {plant.genus && <p><strong>Genus:</strong> {plant.genus}</p>}
+                                        {plant.cultivar && <p><strong>Cultivar:</strong> {plant.cultivar}</p>}
+                                        {plant.species_epithet && (
+                                            <p><strong>Species epithet:</strong> {plant.species_epithet}</p>
+                                        )}
+                                        {plant.authority && <p><strong>Authority:</strong> {plant.authority}</p>}
+                                    </div>
+                                </div>
+
+                                {/* Other names */}
+                                {otherNames.length > 0 && (
+                                    <div>
+                                        <h2 className="text-lg font-semibold text-emerald-800 mb-2">Other names</h2>
+                                        <div className="flex flex-wrap gap-2">
+                                            {otherNames.map((n, idx) => (
+                                                <span key={idx}
+                                                      className="inline-flex items-center px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs md:text-sm"
+                                                >
+                                                    {n}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* DETAILED CARE INFO (MongoDB) */}
+                                <div>
+                                    <h2 className="text-lg font-semibold text-emerald-800 mb-2">
+                                        Care & Growing Information
+                                    </h2>
+
+                                    {!plant.details ? (
+                                        <p className="text-sm text-gray-600">No detailed data available.</p>
+                                    ) : (
+                                        <div className="space-y-4">
+
+                                            {plant.details.description && (
+                                                <div className="bg-emerald-50 border p-4 rounded-xl">
+                                                    <h3 className="font-semibold text-emerald-900 mb-1">Description</h3>
+                                                    <p className="text-gray-700 whitespace-pre-line">
+                                                        {plant.details.description}
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {plant.details.watering && (
+                                                <div className="bg-emerald-50 border p-4 rounded-xl">
+                                                    <h3 className="font-semibold text-emerald-900 mb-1">Watering</h3>
+                                                    <p className="text-gray-700">{plant.details.watering}</p>
+                                                </div>
+                                            )}
+
+                                            {plant.details.sunlight?.length > 0 && (
+                                                <div className="bg-emerald-50 border p-4 rounded-xl">
+                                                    <h3 className="font-semibold text-emerald-900 mb-1">Sunlight</h3>
+                                                    <p className="text-gray-700">
+                                                        {plant.details.sunlight.join(", ")}
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {plant.details.propagation?.length > 0 && (
+                                                <div className="bg-emerald-50 border p-4 rounded-xl">
+                                                    <h3 className="font-semibold text-emerald-900 mb-1">Propagation</h3>
+                                                    <p className="text-gray-700">
+                                                        {plant.details.propagation.join(", ")}
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {plant.details.pruning_month?.length > 0 && (
+                                                <div className="bg-emerald-50 border p-4 rounded-xl">
+                                                    <h3 className="font-semibold text-emerald-900 mb-1">
+                                                        Pruning months
+                                                    </h3>
+                                                    <p className="text-gray-700">
+                                                        {plant.details.pruning_month.join(", ")}
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {plant.details.origin?.length > 0 && (
+                                                <div className="bg-emerald-50 border p-4 rounded-xl">
+                                                    <h3 className="font-semibold text-emerald-900 mb-1">Origin</h3>
+                                                    <p className="text-gray-700">
+                                                        {plant.details.origin.join(", ")}
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Perenual Care (optional) */}
+                                <div>
+                                    <h2 className="text-lg font-semibold text-emerald-800 mb-2">
+                                        Additional Care Guides (Perenual)
+                                    </h2>
+
+                                    {careLoading ? (
+                                        <p className="text-gray-600 text-sm">Loading care guides...</p>
+                                    ) : careGuides.length === 0 ? (
+                                        <p className="text-gray-600 text-sm">No care guides available.</p>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {careGuides.map((guide, idx) => (
+                                                <div key={idx}
+                                                     className="bg-emerald-50 border rounded-xl p-4"
+                                                >
+                                                    <h3 className="font-semibold capitalize text-emerald-900 mb-1">
+                                                        {guide.type}
+                                                    </h3>
+                                                    <p className="text-gray-700 whitespace-pre-line">
+                                                        {guide.description}
+                                                    </p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* RIGHT COLUMN */}
+                            <div className="space-y-4">
+                                <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 text-sm">
+                                    <h3 className="text-md font-semibold text-emerald-800 mb-2">
+                                        Database info
+                                    </h3>
+
+                                    <p><strong>Internal ID:</strong> {plant._id}</p>
+                                    <p><strong>Perenual ID:</strong> {plant.id}</p>
+
+                                    {plant.imported_at && (
+                                        <p><strong>Imported:</strong> {new Date(plant.imported_at).toLocaleString()}</p>
+                                    )}
+
+                                    <p className="text-xs text-gray-500 mt-2">
+                                        Source: {plant.source || "Perenual API"}
+                                    </p>
+                                </div>
+                            </div>
+
+                        </div>
+
+                    </div>
                 </div>
-            )}
+            </div>
         </div>
     );
 }

@@ -5,30 +5,43 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import User from "./models/User.js";
 import { sendVerificationEmail, sendPasswordResetEmail } from "./utils/sendEmail.js";
+// HA NEM használod itt az API-t, ezt akár ki is veheted:
+// import { perenualRequest } from "./utils/perenualApi.js";
 import crypto from "crypto";
 import bcrypt from "bcrypt";
-import fs from "fs";
 
 dotenv.config();
 
 const app = express();
-app.use(
-    cors({
-        origin: "http://localhost:5173", // Vite frontend URL
-        credentials: true,               // allows sending cookies / headers
-    })
-);
+
+// 🔧 CORS – fejlesztéshez engedjünk mindent, ne vacakoljon porttal
+app.use(cors());
+
+// ha nagyon ragaszkodsz a szigorúhoz, akkor inkább ez legyen:
+// app.use(
+//     cors({
+//         origin: "http://localhost:5173",
+//         credentials: true,
+//     })
+// );
 
 app.use(express.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 mongoose
-    .connect("mongodb://127.0.0.1:27017/soilsync", {
-        useNewUrlParser: true,
-        useUnifiedTopology: true,
-    })
+    .connect("mongodb://127.0.0.1:27017/soilsync")
     .then(() => console.log("✅ MongoDB connected"))
     .catch((err) => console.error("❌ MongoDB error:", err));
+
+// 🔹 Perenual növény kollekció (Mongo: Perenual_Plants)
+const perenualPlantSchema = new mongoose.Schema({}, { strict: false });
+const PerenualPlant = mongoose.model(
+    "PerenualPlant",
+    perenualPlantSchema,
+    "Perenual_Plants"
+);
+
+// --- AUTH RÉSZEK ---
 
 // 🔹 Registration
 app.post("/register", async (req, res) => {
@@ -51,7 +64,6 @@ app.post("/register", async (req, res) => {
 
         await newUser.save();
 
-        // ✅ Send verification email
         await sendVerificationEmail(email, verificationToken);
 
         res.status(201).json({ message: "Registration successful! Please verify your email." });
@@ -89,13 +101,12 @@ app.post("/forgot-password", async (req, res) => {
 
         const user = await User.findOne({ email });
         if (!user) {
-            // for security reasons, don’t reveal if the user doesn’t exist
             return res.json({ message: "If this email exists, a reset link has been sent." });
         }
 
         const token = crypto.randomBytes(32).toString("hex");
         user.passwordResetToken = token;
-        user.passwordResetExpires = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+        user.passwordResetExpires = new Date(Date.now() + 30 * 60 * 1000);
         await user.save();
 
         await sendPasswordResetEmail(email, token);
@@ -142,7 +153,6 @@ app.post("/login", async (req, res) => {
     const { identifier, password } = req.body;
 
     try {
-        // Search by email or username
         const user = await User.findOne({
             $or: [{ email: identifier }, { name: identifier }],
         });
@@ -151,18 +161,15 @@ app.post("/login", async (req, res) => {
             return res.status(400).json({ message: "User not found." });
         }
 
-        // Check if email is verified
         if (!user.verified) {
             return res.status(403).json({ message: "Please verify your email before logging in." });
         }
 
-        // Password check
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
             return res.status(401).json({ message: "Invalid password." });
         }
 
-        // Later, add JWT token here
         const fakeToken = Math.random().toString(36).substring(2, 15);
 
         res.status(200).json({
@@ -175,83 +182,64 @@ app.post("/login", async (req, res) => {
     }
 });
 
-
-const plantSchema = new mongoose.Schema({}, { strict: false });
-const PlantCollection = mongoose.model("PlantCollection", plantSchema, "Plants_DB");
-
+// 🌱 Perenual plants list endpoint
 app.get("/plants", async (req, res) => {
     try {
-        const { search, category, climat, page = 1, limit = 20 } = req.query;
+        let { page = 1, limit = 24, search = "" } = req.query;
 
-        const doc = await PlantCollection.findOne();
-        if (!doc || !doc.HousePlantsTable) {
-            return res.status(404).json({ message: "Növényadatok nem találhatók." });
-        }
+        const pageNumber = parseInt(page, 10) || 1;
+        const limitNumber = parseInt(limit, 10) || 24;
+        const skip = (pageNumber - 1) * limitNumber;
 
-        let plants = doc.HousePlantsTable.map((p) => p.PutRequest.Item);
+        const query = {};
 
-        // --- Szűrés és keresés ---
         if (search) {
-            const term = search.toLowerCase();
-            plants = plants.filter(
-                (p) =>
-                    p["Latin name"]?.toLowerCase().includes(term) ||
-                    (Array.isArray(p["Common name"]) &&
-                        p["Common name"].some((n) => n.toLowerCase().includes(term)))
-            );
+            const regex = new RegExp(search, "i");
+            query.$or = [
+                { common_name: regex },
+                { scientific_name: regex }, // scientific_name array-t is elkapja
+                { genus: regex },
+                { family: regex },
+            ];
         }
 
-        if (category) {
-            plants = plants.filter(
-                (p) => p.Categories?.toLowerCase() === category.toLowerCase()
-            );
-        }
-
-        if (climat) {
-            plants = plants.filter(
-                (p) => p.Climat?.toLowerCase() === climat.toLowerCase()
-            );
-        }
-
-        // --- Lapozás ---
-        const start = (page - 1) * limit;
-        const end = start + Number(limit);
-        const paginated = plants.slice(start, end);
+        const [total, plants] = await Promise.all([
+            PerenualPlant.countDocuments(query),
+            PerenualPlant.find(query)
+                .sort({ common_name: 1 })
+                .skip(skip)
+                .limit(limitNumber),
+        ]);
 
         res.json({
-            total: plants.length,
-            page: Number(page),
-            totalPages: Math.ceil(plants.length / limit),
-            data: paginated,
+            data: plants,
+            total,
+            page: pageNumber,
+            totalPages: Math.ceil(total / limitNumber),
         });
     } catch (err) {
-        console.error("❌ Hiba a növények lekérdezésekor:", err);
-        res.status(500).json({ message: "Szerverhiba." });
+        console.error("❌ Error fetching plants:", err);
+        res.status(500).json({ message: "Server error while fetching plants." });
     }
 });
 
+// 🌱 Egyetlen növény lekérése ID alapján
 app.get("/plants/:id", async (req, res) => {
     try {
         const { id } = req.params;
 
-        const PlantCollection = mongoose.model("PlantCollection", new mongoose.Schema({}, { strict: false }), "Plants_DB");
-        const doc = await PlantCollection.findOne();
-
-        if (!doc || !doc.HousePlantsTable) {
-            return res.status(404).json({ message: "Plant data not found." });
-        }
-
-        const plants = doc.HousePlantsTable.map((p) => p.PutRequest.Item);
-        const plant = plants.find((p) => p.id === id);
+        const plant = await PerenualPlant.findOne({ id: Number(id) });
 
         if (!plant) {
-            return res.status(404).json({ message: "Plant not found." });
+            return res.status(404).json({ message: "Plant not found" });
         }
 
         res.json(plant);
+
     } catch (err) {
-        console.error("❌ Error fetching plant:", err);
-        res.status(500).json({ message: "Server error." });
+        console.error("❌ Error fetching plant details:", err);
+        res.status(500).json({ message: "Server error while fetching plant details." });
     }
 });
+
 app.listen(5000, () => console.log("✅ Server running on port 5000"));
