@@ -12,18 +12,16 @@ const transporter = nodemailer.createTransport({
         pass: process.env.EMAIL_PASS,
     },
 });
-
-// ✅ Email megerősítés sablon
 export async function sendVerificationEmail(email, token) {
     const verifyUrl = `http://localhost:5000/verify/${token}`;
 
     await transporter.sendMail({
-        from: `"SoilSync 🌱" <${process.env.EMAIL_USER}>`,
+        from: `"SoilSync" <${process.env.EMAIL_USER}>`,
         to: email,
         subject: "Verify your SoilSync account",
         text: `Welcome to SoilSync! Click the link below to verify your email:\n${verifyUrl}`,
         html: soilSyncTemplate({
-            title: "Welcome to SoilSync 🌱",
+            title: "Welcome to SoilSync",
             message: "Click below to verify your email address:",
             buttonText: "Verify Email",
             link: verifyUrl,
@@ -33,7 +31,7 @@ export async function sendVerificationEmail(email, token) {
     console.log(`📨 Verification email sent to ${email}`);
 }
 
-// ✅ Jelszó visszaállítás email
+
 export async function sendPasswordResetEmail(toEmail, token) {
     const frontendBase = process.env.FRONTEND_URL || "http://localhost:5173";
     const resetUrl = `${frontendBase}/reset-password/${token}`;
@@ -62,7 +60,7 @@ export async function sendPasswordResetEmail(toEmail, token) {
     });
 }
 
-// ✅ HTML sablon központilag
+
 function soilSyncTemplate({ title, message, buttonText, link }) {
     return `
     <div style="font-family: Arial, sans-serif; color: #1b1b1b; background-color: ${colors.landingPage}; padding: 30px; border-radius: 10px; max-width: 500px; margin: auto;">
