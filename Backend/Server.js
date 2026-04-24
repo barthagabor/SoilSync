@@ -16,6 +16,7 @@ const app = express();
 // 🔧 CORS – fejlesztéshez engedjünk mindent, ne vacakoljon porttal
 app.use(cors());
 
+<<<<<<< Updated upstream
 // ha nagyon ragaszkodsz a szigorúhoz, akkor inkább ez legyen:
 // app.use(
 //     cors({
@@ -26,6 +27,14 @@ app.use(cors());
 
 app.use(express.json({ limit: '10mb' })); // Limit növelése a képek miatt!
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
+=======
+
+app.use(express.json({ limit: '25mb' }));
+app.use(bodyParser.urlencoded({ extended: true, limit: '25mb' }));
+
+
+app.use("/", authRoutes);
+>>>>>>> Stashed changes
 
 mongoose
     .connect("mongodb://127.0.0.1:27017/soilsync")

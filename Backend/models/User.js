@@ -1,6 +1,30 @@
 import mongoose from "mongoose";
 import bcrypt from "bcrypt";
 
+const savedGardenSchema = new mongoose.Schema(
+    {
+        title: { type: String, default: "Saved Garden" },
+        image: { type: String, required: true },
+        referenceImage: { type: String, default: "" },
+        usedReferencePhoto: { type: Boolean, default: false },
+        gardenStyle: { type: String, default: "flowering_cottage" },
+        variationIndex: { type: Number, default: 0 },
+        plants: {
+            type: [
+                {
+                    plantId: { type: Number, default: null },
+                    commonName: { type: String, default: "" },
+                    scientificName: { type: String, default: "" },
+                    image: { type: String, default: "" },
+                },
+            ],
+            default: [],
+        },
+        savedAt: { type: Date, default: Date.now },
+    },
+    { _id: true }
+);
+
 const userSchema = new mongoose.Schema({
     name: String,
     email: { type: String, required: true, unique: true },
@@ -14,10 +38,19 @@ const userSchema = new mongoose.Schema({
     passwordResetExpires: { type: Date, default: null },
 
     // Profil adatok
-    profileImage: { type: String, default: "" }, // Base64 stringként tároljuk az egyszerűség kedvéért
+    profileImage: { type: String, default: "" },
     bio: { type: String, default: "" },
     location: { type: String, default: "" },
-    role: { type: String, default: "Gardener" } // Pl. Gardener, Expert, etc.
+    role: { type: String, default: "Gardener" },
+    systemRole: {
+        type: String,
+        enum: ["user", "admin", "superadmin"],
+        default: "user",
+    },
+
+    // Kedvencek - plant ID-k tömbje
+    favourites: { type: [Number], default: [] },
+    savedGardens: { type: [savedGardenSchema], default: [] }
 
 }, { timestamps: true });
 
