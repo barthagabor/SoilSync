@@ -11,11 +11,9 @@ import {
     Leaf,
     ArrowLeft,
     Droplet
-} from "lucide-react"; // Ikonok a vizuális élmény javításához
+} from "lucide-react";
 
-// --- Helper Components for Visualization ---
 
-// 💧 Vízszint megjelenítő (3 csepp skála)
 const WateringLevel = ({ value }) => {
     let level = 1;
     const v = value?.toLowerCase() || "";
