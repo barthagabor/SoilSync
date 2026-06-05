@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Mail, Leaf, ArrowLeft } from "lucide-react";
+import { forgotPasswordRequest } from "../services/authService.jsx";
 
 export default function ForgotPassword() {
     const [email, setEmail] = useState("");
@@ -14,16 +15,11 @@ export default function ForgotPassword() {
         if (!email.trim()) { setError("Please enter your email address!"); return; }
         try {
             setLoading(true);
-            const res = await fetch("http://localhost:5000/forgot-password", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email }),
-            });
-            const data = await res.json();
-            if (res.ok) { setEmail(""); setSent(true); }
-            else setError(data.message || "Something went wrong.");
-        } catch {
-            setError("Failed to connect to the server.");
+            await forgotPasswordRequest({ email });
+            setEmail("");
+            setSent(true);
+        } catch (err) {
+            setError(err.message || "Failed to connect to the server.");
         } finally {
             setLoading(false);
         }

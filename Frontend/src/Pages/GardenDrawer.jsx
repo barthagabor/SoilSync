@@ -1,19 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowRight, Download, Eye, EyeOff, ImagePlus, Leaf, Plus, Save, Search, Sparkles, Star, Upload, X } from 'lucide-react';
+import { ArrowDown, ArrowRight, Download, Plus, Save, Search, Sparkles, Star, Upload, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import Navbar from '../components/Navbar';
 import { useAuth } from '../context/AuthContext';
-
-const SPACE_OPTIONS = [
-    { value: 'outdoor_home', label: 'Outdoor Home Garden' },
-    { value: 'front_yard', label: 'Front Yard' },
-    { value: 'backyard', label: 'Backyard' },
-    { value: 'courtyard', label: 'Courtyard' },
-    { value: 'patio_terrace', label: 'Patio / Terrace' },
-    { value: 'balcony', label: 'Balcony' },
-    { value: 'indoor_corner', label: 'Indoor Corner' },
-    { value: 'indoor_sunroom', label: 'Indoor Sunroom' },
-];
+import { usePageScrollRestoration, useSessionStorageState } from '../hooks/usePagePersistence';
+import { consumePendingPremiumPlannerSeed } from '../utils/premiumPlannerTransfer';
+import { buildUrl } from '../services/authService.jsx';
 
 const STYLE_OPTIONS = [
     { value: 'flowering_cottage', label: 'Flowering Cottage', summary: 'Soft borders, colorful blooms, and a romantic home-garden feel.' },
@@ -23,33 +16,6 @@ const STYLE_OPTIONS = [
     { value: 'japanese_zen', label: 'Japanese Zen', summary: 'Calm composition, stones, texture contrast, and breathing room.' },
 ];
 
-const MOOD_OPTIONS = [
-    { value: 'natural', label: 'Natural' },
-    { value: 'calm', label: 'Calm' },
-    { value: 'vibrant', label: 'Vibrant' },
-    { value: 'cozy', label: 'Cozy' },
-    { value: 'elegant', label: 'Elegant' },
-];
-
-const MAINTENANCE_OPTIONS = [
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-];
-
-const HARDSCAPE_OPTIONS = [
-    { value: 'mixed', label: 'Mixed' },
-    { value: 'lawn', label: 'Lawn' },
-    { value: 'gravel', label: 'Gravel' },
-    { value: 'stone', label: 'Stone' },
-    { value: 'deck', label: 'Deck' },
-];
-
-const DENSITY_OPTIONS = [
-    { value: 'airy', label: 'Airy' },
-    { value: 'balanced', label: 'Balanced' },
-    { value: 'lush', label: 'Lush' },
-];
 
 const REALISM_OPTIONS = [
     { value: 'easy_to_recreate', label: 'Easy to Recreate', summary: 'Keep it realistic for a normal home garden and easier to copy in real life.' },
@@ -84,8 +50,7 @@ const DEFAULT_DESIGN_BRIEF = {
     extraDirections: '',
 };
 
-const DESIGN_SELECT_CLASS =
-    'w-full rounded-2xl border border-[#dce7cf] bg-white px-4 py-3 text-sm text-greenDark outline-none transition focus:border-landingPageIcons focus:ring-2 focus:ring-greenChip';
+const PLANNER_SELECTED_PLANT_LIMIT = 10;
 
 function createEmptyPlantInput(localId) {
     return {
@@ -93,6 +58,15 @@ function createEmptyPlantInput(localId) {
         dbId: '',
         query: '',
         selectedPlant: null,
+    };
+}
+
+function createPlantInputFromPremiumSeed(plant, localId) {
+    return {
+        localId,
+        dbId: plant?.id ? String(plant.id) : '',
+        query: getPlantTitle(plant),
+        selectedPlant: plant || null,
     };
 }
 
@@ -126,10 +100,6 @@ function getPlantImage(plant) {
 
 function getOptionLabel(options, value) {
     return options.find((option) => option.value === value)?.label || value;
-}
-
-function getStyleSummary(styleValue) {
-    return STYLE_OPTIONS.find((option) => option.value === styleValue)?.summary || '';
 }
 
 function appendDirectionSuggestion(currentValue, suggestion) {
@@ -193,27 +163,27 @@ export default function GardenDrawer() {
     const { user } = useAuth();
     const navigate = useNavigate();
 
-    const [plantInputs, setPlantInputs] = useState([createEmptyPlantInput(1)]);
-    const [designBrief, setDesignBrief] = useState(DEFAULT_DESIGN_BRIEF);
-    const [referenceMode, setReferenceMode] = useState('from_scratch');
+    const [plantInputs, setPlantInputs] = useSessionStorageState('page:garden-drawer:plant-inputs', [createEmptyPlantInput(1)]);
+    const [designBrief, setDesignBrief] = useSessionStorageState('page:garden-drawer:design-brief', DEFAULT_DESIGN_BRIEF);
+    const [referenceMode, setReferenceMode] = useSessionStorageState('page:garden-drawer:reference-mode', 'from_scratch');
     const [referenceGardenPhoto, setReferenceGardenPhoto] = useState(null);
     const [photoPreparing, setPhotoPreparing] = useState(false);
     const [gardenImage, setGardenImage] = useState(null);
     const [generatedImages, setGeneratedImages] = useState([]);
-    const [activeVariationIndex, setActiveVariationIndex] = useState(0);
+    const [activeVariationIndex, setActiveVariationIndex] = useSessionStorageState('page:garden-drawer:active-variation-index', 0);
     const [generatedFromReferencePhoto, setGeneratedFromReferencePhoto] = useState(false);
     const [comparePosition, setComparePosition] = useState(50);
     const [plantGuide, setPlantGuide] = useState([]);
-    const [showPlantGuide, setShowPlantGuide] = useState(false);
-    const [plantGuideLoading, setPlantGuideLoading] = useState(false);
-    const [plantGuideError, setPlantGuideError] = useState(null);
-    const [activeGuidePlantId, setActiveGuidePlantId] = useState(null);
+    const [showPlantGuide, setShowPlantGuide] = useSessionStorageState('page:garden-drawer:show-plant-guide', false);
+    const [, setPlantGuideLoading] = useState(false);
+    const [, setPlantGuideError] = useState(null);
+    const [activeGuidePlantId, setActiveGuidePlantId] = useSessionStorageState('page:garden-drawer:active-guide-plant-id', null);
     const [loading, setLoading] = useState(false);
     const [savingGarden, setSavingGarden] = useState(false);
     const [saveMessage, setSaveMessage] = useState({ text: '', type: '' });
     const [error, setError] = useState(null);
-    const [showExtraSettings, setShowExtraSettings] = useState(false);
-    const [activeSearchId, setActiveSearchId] = useState(null);
+    const [showExtraSettings, setShowExtraSettings] = useSessionStorageState('page:garden-drawer:show-extra-settings', false);
+    const [activeSearchId, setActiveSearchId] = useSessionStorageState('page:garden-drawer:active-search-id', null);
     const [searchResults, setSearchResults] = useState([]);
     const [searching, setSearching] = useState(false);
     const [favouritePlants, setFavouritePlants] = useState([]);
@@ -221,12 +191,71 @@ export default function GardenDrawer() {
     const [previewFrameSize, setPreviewFrameSize] = useState({ width: 0, height: 0 });
     const [previewImageSize, setPreviewImageSize] = useState({ width: 0, height: 0 });
     const previewFrameRef = useRef(null);
+    const premiumSeedAppliedRef = useRef(false);
+
+    usePageScrollRestoration('page:garden-drawer', !loading && !photoPreparing && !searching);
 
     useEffect(() => {
         if (!user) {
             navigate('/login');
         }
     }, [user, navigate]);
+
+    useEffect(() => {
+        if (premiumSeedAppliedRef.current) return;
+        premiumSeedAppliedRef.current = true;
+
+        const plannerSeed = consumePendingPremiumPlannerSeed();
+        if (!plannerSeed) return;
+
+        const nextSelectedPlants = Array.isArray(plannerSeed.selectedPlants)
+            ? plannerSeed.selectedPlants.filter(Boolean)
+            : [];
+        const nextPlantInputs = nextSelectedPlants.length > 0
+            ? nextSelectedPlants.map((plant, index) => createPlantInputFromPremiumSeed(plant, index + 1))
+            : [createEmptyPlantInput(1)];
+        const nextGeneratedImages = Array.isArray(plannerSeed.generatedImages)
+            ? plannerSeed.generatedImages.filter(Boolean)
+            : [];
+        const nextGardenImage = plannerSeed.gardenImage || nextGeneratedImages[0] || null;
+
+        setPlantInputs(nextPlantInputs);
+        setDesignBrief(() => ({
+            ...DEFAULT_DESIGN_BRIEF,
+            ...(plannerSeed.designBrief || {}),
+        }));
+        setReferenceMode(plannerSeed.referenceMode === 'photo_edit' ? 'photo_edit' : 'from_scratch');
+        setReferenceGardenPhoto(plannerSeed.referenceGardenPhoto || null);
+        setGeneratedImages(nextGeneratedImages);
+        setActiveVariationIndex(Number.isFinite(plannerSeed.activeVariationIndex) ? plannerSeed.activeVariationIndex : 0);
+        setGardenImage(nextGardenImage);
+        setGeneratedFromReferencePhoto(Boolean(plannerSeed.generatedFromReferencePhoto));
+        setComparePosition(50);
+        setShowPlantGuide(false);
+        setPlantGuide([]);
+        setPlantGuideLoading(false);
+        setPlantGuideError(null);
+        setActiveGuidePlantId(null);
+        setSaveMessage({ text: '', type: '' });
+        setError(null);
+    }, [
+        setActiveGuidePlantId,
+        setActiveVariationIndex,
+        setComparePosition,
+        setDesignBrief,
+        setError,
+        setGardenImage,
+        setGeneratedFromReferencePhoto,
+        setGeneratedImages,
+        setPlantGuide,
+        setPlantGuideError,
+        setPlantGuideLoading,
+        setPlantInputs,
+        setReferenceGardenPhoto,
+        setReferenceMode,
+        setSaveMessage,
+        setShowPlantGuide,
+    ]);
 
     useEffect(() => {
         if (!user) return;
@@ -237,7 +266,7 @@ export default function GardenDrawer() {
         const loadFavouritePlants = async () => {
             try {
                 setFavouritesLoading(true);
-                const response = await fetch('http://localhost:5000/favourites', {
+                const response = await fetch(buildUrl('/favourites'), {
                     headers: {
                         Authorization: `Bearer ${token}`,
                     },
@@ -284,6 +313,7 @@ export default function GardenDrawer() {
     );
 
     const usesReferencePhoto = referenceMode === 'photo_edit' && Boolean(referenceGardenPhoto);
+    const maxSelectablePlants = PLANNER_SELECTED_PLANT_LIMIT;
     const showBeforeAfterSlider = Boolean(
         gardenImage && generatedFromReferencePhoto && referenceGardenPhoto?.previewUrl
     );
@@ -363,7 +393,7 @@ export default function GardenDrawer() {
         const timeoutId = window.setTimeout(async () => {
             try {
                 setSearching(true);
-                const url = new URL('http://localhost:5000/plants');
+                const url = new URL(buildUrl('/plants'));
                 url.searchParams.set('page', '1');
                 url.searchParams.set('limit', '6');
                 url.searchParams.set('search', query);
@@ -442,6 +472,11 @@ export default function GardenDrawer() {
     };
 
     const addPlantInput = () => {
+        if (plantInputs.length >= maxSelectablePlants) {
+            setError(`You can add up to ${PLANNER_SELECTED_PLANT_LIMIT} plants in this planner.`);
+            return;
+        }
+
         const newId = Math.max(...plantInputs.map((plant) => plant.localId || 0), 0) + 1;
         setPlantInputs([...plantInputs, createEmptyPlantInput(newId)]);
         clearGeneratedPreview();
@@ -462,6 +497,14 @@ export default function GardenDrawer() {
     };
 
     const selectPlant = (localId, plant) => {
+        const currentInput = plantInputs.find((inputPlant) => inputPlant.localId === localId);
+        const selectingIntoEmptySlot = !currentInput?.dbId;
+
+        if (selectingIntoEmptySlot && selectedCount >= maxSelectablePlants) {
+            setError(`You can select up to ${PLANNER_SELECTED_PLANT_LIMIT} plants in this planner.`);
+            return;
+        }
+
         setPlantInputs(
             plantInputs.map((inputPlant) =>
                 inputPlant.localId === localId
@@ -499,6 +542,11 @@ export default function GardenDrawer() {
     const addFavouritePlant = (plant) => {
         const alreadySelected = plantInputs.some((inputPlant) => Number(inputPlant.dbId) === plant.id);
         if (alreadySelected) {
+            return;
+        }
+
+        if (selectedCount >= maxSelectablePlants) {
+            setError(`You can select up to ${PLANNER_SELECTED_PLANT_LIMIT} plants in this planner.`);
             return;
         }
 
@@ -589,13 +637,18 @@ export default function GardenDrawer() {
                 return;
             }
 
+            if (validIds.length > maxSelectablePlants) {
+                setError(`Planner generation supports up to ${PLANNER_SELECTED_PLANT_LIMIT} selected plants.`);
+                return;
+            }
+
             if (!token) {
                 setError('Your session has expired. Please sign in again.');
                 navigate('/login');
                 return;
             }
 
-            const response = await fetch('http://localhost:5000/api/generate-photorealistic-garden', {
+            const response = await fetch(buildUrl('/api/generate-photorealistic-garden'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -673,84 +726,6 @@ export default function GardenDrawer() {
         setError(null);
     };
 
-    const togglePlantGuide = async () => {
-        if (!gardenImage) return;
-
-        if (showPlantGuide && guideMarkers.length > 0) {
-            setShowPlantGuide(false);
-            return;
-        }
-
-        if (guideMarkers.length > 0) {
-            setShowPlantGuide(true);
-            if (!activeGuidePlantId) {
-                setActiveGuidePlantId(guideMarkers[0].plantId);
-            }
-            return;
-        }
-
-        try {
-            setPlantGuideLoading(true);
-            setPlantGuideError(null);
-
-            const token = localStorage.getItem('token');
-            if (!token) {
-                setPlantGuideError('Your session has expired. Please sign in again.');
-                navigate('/login');
-                return;
-            }
-
-            const response = await fetch('http://localhost:5000/api/garden-plant-guide', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                    selectedPlantIds: validSelectedPlantIds,
-                    imageData: gardenImage,
-                    designPreferences: designBrief,
-                }),
-            });
-
-            const contentType = response.headers.get('content-type') || '';
-
-            if (!response.ok) {
-                let errorMessage = 'Failed to analyze the generated garden image.';
-
-                if (contentType.includes('application/json')) {
-                    const errorData = await response.json();
-                    errorMessage = errorData.error || errorData.message || errorMessage;
-                } else {
-                    const errorText = (await response.text()).trim();
-                    if (errorText) {
-                        errorMessage = errorText;
-                    }
-                }
-
-                setPlantGuideError(errorMessage);
-                return;
-            }
-
-            const data = contentType.includes('application/json') ? await response.json() : { markers: [] };
-            const markers = Array.isArray(data.markers) ? data.markers : [];
-            setPlantGuide(markers);
-
-            if (markers.length > 0) {
-                setActiveGuidePlantId(markers[0].plantId);
-                setShowPlantGuide(true);
-            } else {
-                setShowPlantGuide(false);
-                setPlantGuideError('Gemini could not confidently point out the selected plants on this image yet.');
-            }
-        } catch (err) {
-            console.error('Plant guide error:', err);
-            setPlantGuideError(err.message || 'The plant guide could not be generated.');
-        } finally {
-            setPlantGuideLoading(false);
-        }
-    };
-
     const downloadImage = () => {
         if (!gardenImage) return;
 
@@ -794,7 +769,7 @@ export default function GardenDrawer() {
                 })),
             };
 
-            const response = await fetch('http://localhost:5000/saved-gardens', {
+            const response = await fetch(buildUrl('/saved-gardens'), {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -823,8 +798,9 @@ export default function GardenDrawer() {
 
     return (
         <div className="font-dm text-greenDark overflow-x-hidden bg-greenLight">
+            <Navbar />
             <div className="space-y-0">
-                <section className="relative px-4 pb-10 pt-24">
+                <section className="relative px-4 pb-10 pt-28">
                     <div className="max-w-6xl mx-auto space-y-8">
                         <motion.div
                             initial={{ opacity: 0, y: 20 }}
@@ -832,20 +808,9 @@ export default function GardenDrawer() {
                             transition={{ duration: 0.6 }}
                             className="mx-auto max-w-3xl px-2 text-center"
                         >
-                            <motion.div
-                                animate={{ y: [0, -8, 0] }}
-                                transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
-                                className="mx-auto mb-8 flex h-20 w-20 items-center justify-center rounded-[24px] bg-garden shadow-green-sm"
-                            >
-                                <Leaf size={34} className="text-landingPageIcons" />
-                            </motion.div>
-
-                            <h1 className="mb-4 font-playfair text-5xl leading-tight text-greenDark">
+                            <h1 className="font-playfair text-5xl leading-tight text-greenDark">
                                 AI Garden <span className="text-landingPageIcons">Planner</span>
                             </h1>
-                            <p className="text-lg leading-relaxed text-greenMid">
-                                Shape a cleaner garden concept with your own palette, your own style, and an optional real garden photo that Gemini can redesign in place.
-                            </p>
                         </motion.div>
 
                         <motion.div
@@ -1397,7 +1362,15 @@ export default function GardenDrawer() {
                                 <h2 className="font-playfair text-3xl text-greenDark">Selected Plants</h2>
                                 <p className="text-greenMid mt-2">These become the hero planting palette in the generated garden concept.</p>
                             </div>
-                            <button onClick={addPlantInput} className="shrink-0 inline-flex items-center gap-2 bg-landingPageIcons hover:bg-darkLandingPageIcons text-white font-bold rounded-2xl px-4 py-3 transition">
+                            <button
+                                onClick={addPlantInput}
+                                disabled={plantInputs.length >= maxSelectablePlants}
+                                className={`shrink-0 inline-flex items-center gap-2 rounded-2xl px-4 py-3 font-bold transition ${
+                                    plantInputs.length >= maxSelectablePlants
+                                        ? 'cursor-not-allowed bg-[#dce7cf] text-greenMid'
+                                        : 'bg-landingPageIcons text-white hover:bg-darkLandingPageIcons'
+                                }`}
+                            >
                                 <Plus size={18} />
                                 Add Plant
                             </button>
@@ -1405,6 +1378,9 @@ export default function GardenDrawer() {
 
                         <div className="mb-6 rounded-[22px] border border-dashed border-[#dce7cf] bg-[#f7faf2] px-4 py-4 text-sm text-greenMid">
                             Pick the species you want to see. You can generate a fresh garden from them, or upload your own garden photo and use these plants as the editing target.
+                            <div className="mt-2 font-semibold text-landingPageIcons">
+                                {`Planner workspace allows up to ${PLANNER_SELECTED_PLANT_LIMIT} selected plants.`}
+                            </div>
                         </div>
 
                         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
@@ -1465,13 +1441,25 @@ export default function GardenDrawer() {
                                                             <div className="max-h-80 overflow-y-auto">
                                                                 {searchResults.map((result) => {
                                                                     const resultImage = getPlantImage(result);
+                                                                    const resultAlreadySelected = plantInputs.some(
+                                                                        (inputPlant) => Number(inputPlant.dbId) === Number(result.id)
+                                                                    );
+                                                                    const selectionDisabled =
+                                                                        !resultAlreadySelected &&
+                                                                        !plant.dbId &&
+                                                                        selectedCount >= maxSelectablePlants;
                                                                     return (
                                                                         <button
                                                                             key={result.id}
                                                                             type="button"
                                                                             onMouseDown={(event) => event.preventDefault()}
                                                                             onClick={() => selectPlant(plant.localId, result)}
-                                                                            className="w-full flex items-center gap-4 px-4 py-4 border-b border-[#eef3e7] last:border-b-0 text-left hover:bg-[#f7faf2] transition"
+                                                                            disabled={selectionDisabled}
+                                                                            className={`w-full flex items-center gap-4 px-4 py-4 border-b border-[#eef3e7] last:border-b-0 text-left transition ${
+                                                                                selectionDisabled
+                                                                                    ? 'cursor-not-allowed bg-[#f4f7ef] text-greenMid'
+                                                                                    : 'hover:bg-[#f7faf2]'
+                                                                            }`}
                                                                         >
                                                                             <div className="w-16 h-16 rounded-2xl overflow-hidden bg-greenLight shrink-0">
                                                                                 {resultImage ? (
@@ -1549,10 +1537,14 @@ export default function GardenDrawer() {
 
                                             <button
                                                 onClick={() => addFavouritePlant(plant)}
-                                                disabled={alreadySelected}
-                                                className={`shrink-0 rounded-2xl px-4 py-3 text-sm font-bold transition ${alreadySelected ? 'bg-greenLight text-greenMid cursor-not-allowed' : 'bg-landingPageIcons text-white hover:bg-darkLandingPageIcons'}`}
+                                                disabled={alreadySelected || selectedCount >= maxSelectablePlants}
+                                                className={`shrink-0 rounded-2xl px-4 py-3 text-sm font-bold transition ${
+                                                    alreadySelected || selectedCount >= maxSelectablePlants
+                                                        ? 'bg-greenLight text-greenMid cursor-not-allowed'
+                                                        : 'bg-landingPageIcons text-white hover:bg-darkLandingPageIcons'
+                                                }`}
                                             >
-                                                {alreadySelected ? 'Added' : 'Add'}
+                                                {alreadySelected ? 'Added' : selectedCount >= maxSelectablePlants ? 'Limit reached' : 'Add'}
                                             </button>
                                         </div>
                                     );

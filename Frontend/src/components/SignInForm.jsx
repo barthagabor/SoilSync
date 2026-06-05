@@ -2,8 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Leaf, Mail, Lock } from "lucide-react";
 import { useAuth } from "../context/AuthContext.jsx";
-import { loginApi } from "../services/authService";
-
+import { loginUserRequest } from "../services/authService.jsx";
 
 export default function SignInForm() {
     const [identifier, setIdentifier] = useState("");
@@ -19,14 +18,13 @@ export default function SignInForm() {
         e.preventDefault();
         setError("");
         if (!identifier.trim() || !password.trim()) { setError("Please fill in all fields!"); return; }
-
         try {
             setLoading(true);
-            const data = await loginApi(identifier, password);
+            const data = await loginUserRequest({ identifier, password });
             login(data.user, data.token);
             navigate("/");
         } catch (err) {
-            setError(err.message);
+            setError(err.message || "Failed to connect to the server.");
         } finally {
             setLoading(false);
         }

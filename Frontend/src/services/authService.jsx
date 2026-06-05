@@ -1,70 +1,73 @@
-const API_URL = "http://localhost:5000";
+const rawApiBaseUrl = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-// Segédfüggvény a token automatikus hozzáadásához
-const getAuthHeaders = () => {
-    const token = localStorage.getItem("token");
-    return {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-    };
+export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, "");
+
+export const buildUrl = (path) => `${API_BASE_URL}${path}`;
+
+export const parseResponse = async (response) => {
+    const contentType = response.headers.get("content-type") || "";
+    const isJson = contentType.includes("application/json");
+    const payload = isJson ? await response.json().catch(() => null) : await response.text().catch(() => "");
+
+    if (!response.ok) {
+        const message =
+            (payload && typeof payload === "object" && payload.message) ||
+            (typeof payload === "string" && payload) ||
+            "Request failed.";
+        throw new Error(message);
+    }
+
+    return payload;
 };
 
-export const registerApi = async (name, email, password) => {
-    const res = await fetch(`${API_URL}/register`, {
+export const authHeaders = (token, extraHeaders = {}) => ({
+    ...extraHeaders,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+});
+
+export const registerUserRequest = (payload) =>
+    fetch(buildUrl("/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, password }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || "Registration failed.");
-    return data;
-};
+        body: JSON.stringify(payload),
+    }).then(parseResponse);
 
-export const loginApi = async (identifier, password) => {
-    const res = await fetch(`${API_URL}/login`, {
+export const loginUserRequest = (payload) =>
+    fetch(buildUrl("/login"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier, password }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || "Invalid credentials.");
-    return data;
-};
+        body: JSON.stringify(payload),
+    }).then(parseResponse);
 
-export const forgotPasswordApi = async (email) => {
-    const res = await fetch(`${API_URL}/forgot-password`, {
+export const forgotPasswordRequest = (payload) =>
+    fetch(buildUrl("/forgot-password"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || "Something went wrong.");
-    return data;
-};
+        body: JSON.stringify(payload),
+    }).then(parseResponse);
 
-export const resetPasswordApi = async (token, password) => {
-    const res = await fetch(`${API_URL}/reset-password/${token}`, {
+export const resetPasswordRequest = (token, payload) =>
+    fetch(buildUrl(`/reset-password/${token}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || "Something went wrong.");
-    return data;
-};
+        body: JSON.stringify(payload),
+    }).then(parseResponse);
 
-export const getProfileApi = async () => {
-    const res = await fetch(`${API_URL}/profile`, { headers: getAuthHeaders() });
-    if (!res.ok) throw new Error("Failed to fetch profile");
-    return res.json();
-};
+export const fetchUserProfile = (token) =>
+    fetch(buildUrl("/profile"), {
+        headers: authHeaders(token),
+    }).then(parseResponse);
 
-export const toggleFavouriteApi = async (plantId) => {
-    const res = await fetch(`${API_URL}/favourites/toggle`, {
+export const updateUserProfileRequest = (token, payload) =>
+    fetch(buildUrl("/profile/update"), {
+        method: "PUT",
+        headers: authHeaders(token, { "Content-Type": "application/json" }),
+        body: JSON.stringify(payload),
+    }).then(parseResponse);
+
+export const toggleFavouriteRequest = (token, plantId) =>
+    fetch(buildUrl("/favourites/toggle"), {
         method: "POST",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ plantId: Number(plantId) }),
-    });
-    if (!res.ok) throw new Error("Failed to toggle favourite");
-    return res.json();
-};
+        headers: authHeaders(token, { "Content-Type": "application/json" }),
+        body: JSON.stringify({ plantId }),
+    }).then(parseResponse);

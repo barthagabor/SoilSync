@@ -1,19 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
     AlertTriangle,
     Bug,
+    ChevronDown,
     ChevronRight,
+    ChevronUp,
     Droplets,
     Leaf,
-    Scissors,
     Sparkles,
     Star,
     Sun,
     Terminal,
-    Zap,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import Navbar from "../components/Navbar";
+import { groupRankedRecommendations } from "../utils/recommenderGrouping.js";
+import { usePageScrollRestoration, useSessionStorageState } from "../hooks/usePagePersistence";
+import { buildUrl } from "../services/authService.jsx";
 
 const fallbackOptions = {
     sunlight: [],
@@ -32,11 +36,20 @@ const initialForm = {
     soil: "",
     type: "",
     cycle: "",
-    low_maintenance: false,
-    fast_growth: false,
     pet_safe: false,
     medicinal: false,
 };
+
+const recommenderFormKeys = Object.keys(initialForm);
+
+function normalizeFormData(value) {
+    const source = value && typeof value === "object" ? value : {};
+
+    return recommenderFormKeys.reduce((acc, key) => {
+        acc[key] = source[key] ?? initialForm[key];
+        return acc;
+    }, {});
+}
 
 function selectArrowStyle() {
     return {
@@ -88,17 +101,21 @@ export default function Recommender() {
     const { user, isFavourite, toggleFavourite } = useAuth();
 
     const [loading, setLoading] = useState(false);
-    const [results, setResults] = useState(null);
-    const [error, setError] = useState("");
-    const [debugMode, setDebugMode] = useState(false);
-    const [engine, setEngine] = useState("xgb");
-    const [formData, setFormData] = useState(initialForm);
+    const [results, setResults] = useSessionStorageState("page:recommender:results", null);
+    const [error, setError] = useSessionStorageState("page:recommender:error", "");
+    const [debugMode, setDebugMode] = useSessionStorageState("page:recommender:debug-mode", false);
+    const [formData, setFormData] = useSessionStorageState("page:recommender:form-data", initialForm);
     const [options, setOptions] = useState(fallbackOptions);
+    const [expandedGroups, setExpandedGroups] = useSessionStorageState("page:recommender:expanded-groups", {});
+    const [showMoreGoodMatches, setShowMoreGoodMatches] = useSessionStorageState("page:recommender:show-more-good", false);
+    const normalizedFormData = useMemo(() => normalizeFormData(formData), [formData]);
+
+    usePageScrollRestoration("page:recommender", !loading);
 
     useEffect(() => {
         const loadOptions = async () => {
             try {
-                const res = await fetch("http://localhost:5000/api/recommender/options");
+                const res = await fetch(buildUrl("/api/recommender/options"));
                 if (!res.ok) return;
                 const data = await res.json();
                 setOptions({
@@ -119,7 +136,10 @@ export default function Recommender() {
 
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
-        setFormData((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
+        setFormData((prev) => ({
+            ...normalizeFormData(prev),
+            [name]: type === "checkbox" ? checked : value,
+        }));
     };
 
     const handleSubmit = async (e) => {
@@ -127,8 +147,10 @@ export default function Recommender() {
         setLoading(true);
         setError("");
         setResults(null);
+        setExpandedGroups({});
+        setShowMoreGoodMatches(false);
 
-        const payload = { ...formData, limit: 6 };
+        const payload = { ...normalizedFormData, limit: 18 };
         if (user?.location) {
             payload.viewer_location = user.location;
         }
@@ -145,12 +167,7 @@ export default function Recommender() {
         });
 
         try {
-            const endpoint =
-                engine === "xgb"
-                    ? "http://localhost:5000/api/recommender/xgb"
-                    : "http://localhost:5000/api/recommender/v2";
-
-            const res = await fetch(endpoint, {
+            const res = await fetch(buildUrl("/api/recommender/xgb"), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload),
@@ -158,32 +175,45 @@ export default function Recommender() {
 
             const data = await res.json();
             if (!res.ok) {
-                throw new Error(data.message || "Could not connect to the AI engine.");
+                throw new Error(data.message || "Could not connect to the recommender service.");
             }
 
             setResults(data);
         } catch (err) {
-            setError(err.message || "Could not connect to the AI engine.");
+            setError(err.message || "Could not connect to the recommender service.");
         } finally {
             setLoading(false);
         }
     };
 
-    const activeCount = Object.values(formData).filter((value) => value !== "" && value !== false).length;
+    const activeCount = Object.values(normalizedFormData).filter((value) => value !== "" && value !== false).length;
+    const groupedResults = useMemo(
+        () => groupRankedRecommendations(results, { maxVisibleGroups: 18 }),
+        [results]
+    );
+    const visibleGroups = useMemo(() => groupedResults.slice(0, 6), [groupedResults]);
+    const additionalGoodGroups = useMemo(
+        () =>
+            groupedResults
+                .slice(6)
+                .filter((group) => ["Excellent", "Good"].includes(group?.primary?.fit_label)),
+        [groupedResults]
+    );
+    const groupedAlternativeCount = useMemo(
+        () =>
+            groupedResults.reduce(
+                (count, group) => count + (Array.isArray(group.alternatives) ? group.alternatives.length : 0),
+                0
+            ),
+        [groupedResults]
+    );
     const selectClass =
         "w-full appearance-none rounded-[12px] border border-garden bg-greenLight px-3 py-2.5 pr-8 text-[13px] text-greenDark outline-none transition focus:border-landingPageIcons focus:bg-white";
     const inputClass =
         "w-full rounded-[12px] border border-garden bg-greenLight px-3 py-2.5 text-[13px] text-greenDark outline-none transition focus:border-landingPageIcons focus:bg-white";
     const labelClass = "mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-greenMid";
-    const activeEngine = results ? (results[0]?.engine === "xgb_demo" ? "xgb" : "classic") : engine;
-    const engineDescription =
-        activeEngine === "xgb"
-            ? "ranked by the trained XGBoost demo model"
-            : "ranked by similarity and rule-based fit";
-    const loadingDescription =
-        engine === "xgb"
-            ? "The XGBoost demo model is scoring plants against your profile"
-            : "Scoring plant matches against your profile";
+    const engineDescription = "ranked by the trained XGBoost demo model";
+    const loadingDescription = "The XGBoost demo model is scoring plants against your profile";
 
     const selectFields = [
         { name: "sunlight", label: <><Sun size={10} className="mr-1 inline" />Sunlight</>, options: options.sunlight },
@@ -195,35 +225,27 @@ export default function Recommender() {
     ];
 
     const toggles = [
-        { name: "low_maintenance", icon: <Scissors size={14} color="#3F620F" />, label: "Low Maintenance" },
-        { name: "fast_growth", icon: <Zap size={14} color="#d18b1d" />, label: "Fast Growth" },
         { name: "pet_safe", icon: <span className="text-[14px]">P</span>, label: "Pet Safe" },
         { name: "medicinal", icon: <span className="text-[14px]">M</span>, label: "Medicinal" },
     ];
 
     return (
         <div
-            className="min-h-screen px-6 pb-16 pt-24 font-dm"
+            className="min-h-screen px-6 pb-16 pt-28 font-dm"
             style={{
                 backgroundColor: "#f5f6f0",
                 backgroundImage:
                     "radial-gradient(ellipse at 10% 10%, rgba(149,178,155,0.2) 0%, transparent 50%), radial-gradient(ellipse at 90% 90%, rgba(63,98,15,0.07) 0%, transparent 50%)",
             }}
         >
+            <Navbar />
             <div className="mb-12 text-center">
-                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-garden bg-white px-4 py-1.5 text-[12px] font-semibold uppercase tracking-widest text-landingPageIcons shadow-green-sm">
-                    <Sparkles size={13} />
-                    Plant Recommender
-                </div>
                 <h1
-                    className="mb-3 font-playfair font-bold leading-tight text-greenDark"
+                    className="font-playfair font-bold leading-tight text-greenDark"
                     style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}
                 >
                     Find your perfect <em className="font-medium italic text-landingPageIcons">plant match</em>
                 </h1>
-                <p className="text-[16px] font-light text-greenMid">
-                    Tell the recommender about your garden and get explainable plant suggestions.
-                </p>
             </div>
 
             <div className="mx-auto grid max-w-[1280px] items-start gap-6 xl:grid-cols-[360px_1fr]">
@@ -247,42 +269,16 @@ export default function Recommender() {
                         <form onSubmit={handleSubmit}>
                             <div className="mb-4 rounded-[16px] border border-greenBorder bg-[#fbfcf8] p-3.5">
                                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-greenMid">
-                                    Recommendation Engine
+                                    Recommendation Model
                                 </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setEngine("xgb")}
-                                        className={`rounded-[12px] border px-3 py-2 text-left transition ${
-                                            engine === "xgb"
-                                                ? "border-landingPageIcons bg-greenLight text-greenDark"
-                                                : "border-greenBorder bg-white text-greenMid hover:border-greenMuted"
-                                        }`}
-                                    >
-                                        <div className="text-[13px] font-semibold">XGBoost Demo</div>
-                                        <div className="mt-1 text-[11px] leading-4">Trained ranking model</div>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setEngine("classic")}
-                                        className={`rounded-[12px] border px-3 py-2 text-left transition ${
-                                            engine === "classic"
-                                                ? "border-landingPageIcons bg-greenLight text-greenDark"
-                                                : "border-greenBorder bg-white text-greenMid hover:border-greenMuted"
-                                        }`}
-                                    >
-                                        <div className="text-[13px] font-semibold">Classic</div>
-                                        <div className="mt-1 text-[11px] leading-4">Similarity + rules</div>
-                                    </button>
+                                <div className="rounded-[12px] border border-landingPageIcons bg-greenLight px-3 py-2 text-left text-greenDark">
+                                    <div className="text-[13px] font-semibold">XGBoost Demo</div>
+                                    <div className="mt-1 text-[11px] leading-4">Trained ranking model</div>
                                 </div>
-                                {engine === "xgb" && (
-                                    <p className="mt-3 text-[11px] leading-5 text-greenMid">
-                                        The current XGBoost demo learns from{" "}
-                                        <strong>watering, care level, type, cycle, hardiness zone</strong> and{" "}
-                                        <strong>low maintenance</strong>. The other filters stay visible here, but are not
-                                        learned by this demo yet.
-                                    </p>
-                                )}
+                                <p className="mt-3 text-[11px] leading-5 text-greenMid">
+                                    The current XGBoost demo learns from <strong>watering, care level, type, cycle,
+                                    hardiness zone, pet safe</strong>, and <strong>medicinal use</strong>.
+                                </p>
                             </div>
 
                             <div className="mb-3 grid grid-cols-2 gap-3">
@@ -291,7 +287,7 @@ export default function Recommender() {
                                         <label className={labelClass}>{field.label}</label>
                                         <select
                                             name={field.name}
-                                            value={formData[field.name]}
+                                            value={normalizedFormData[field.name]}
                                             onChange={handleChange}
                                             className={selectClass}
                                             style={selectArrowStyle()}
@@ -312,7 +308,7 @@ export default function Recommender() {
                                 <input
                                     type="number"
                                     name="hardiness_zone"
-                                    value={formData.hardiness_zone}
+                                    value={normalizedFormData.hardiness_zone}
                                     onChange={handleChange}
                                     min="1"
                                     max="13"
@@ -334,18 +330,18 @@ export default function Recommender() {
                                         <input
                                             type="checkbox"
                                             name={toggle.name}
-                                            checked={formData[toggle.name]}
+                                            checked={normalizedFormData[toggle.name]}
                                             onChange={handleChange}
                                             className="hidden"
                                         />
                                         <div
                                             className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] border-2 transition ${
-                                                formData[toggle.name]
+                                                normalizedFormData[toggle.name]
                                                     ? "border-landingPageIcons bg-landingPageIcons"
                                                     : "border-garden bg-white"
                                             }`}
                                         >
-                                            {formData[toggle.name] && <span className="text-[10px] font-bold text-white">+</span>}
+                                            {normalizedFormData[toggle.name] && <span className="text-[10px] font-bold text-white">+</span>}
                                         </div>
                                         <span className="flex flex-1 items-center gap-2 text-[13px] font-medium text-[#374141]">
                                             {toggle.icon}
@@ -388,9 +384,14 @@ export default function Recommender() {
                             <div className="mb-1 flex items-center justify-between border-b border-greenBorder pb-4">
                                 <div className="flex items-center gap-2.5">
                                     <span className="rounded-full bg-garden px-4 py-1 text-[13px] font-semibold text-landingPageIcons">
-                                        Top {results.length} matches
+                                        Top {visibleGroups.length} diverse matches
                                     </span>
                                     <span className="text-[12px] text-greenMuted">{engineDescription}</span>
+                                    {groupedAlternativeCount > 0 && (
+                                        <span className="rounded-full border border-garden bg-[#fbfcf8] px-3 py-1 text-[12px] font-medium text-greenMid">
+                                            + {groupedAlternativeCount} similar options grouped underneath
+                                        </span>
+                                    )}
                                 </div>
                                 <button
                                     onClick={() => setDebugMode((prev) => !prev)}
@@ -401,20 +402,20 @@ export default function Recommender() {
                                     }`}
                                 >
                                     <Terminal size={13} />
-                                    {debugMode ? "Hide Details" : activeEngine === "xgb" ? "View Model Details" : "View AI Logs"}
+                                    {debugMode ? "Hide Details" : "View Model Details"}
                                 </button>
                             </div>
 
-                            {results.map((plant, index) => {
+                            {visibleGroups.map((group, index) => {
+                                const plant = group.primary;
                                 const favourite = isFavourite(plant.id);
+                                const groupIsExpanded = Boolean(expandedGroups[group.key]);
                                 const metricLabel =
                                     typeof plant.similarity === "number"
                                         ? `${(plant.similarity * 100).toFixed(0)}% sim`
                                         : Number.isFinite(plant.model_score)
                                             ? `${plant.model_score.toFixed(2)} raw`
-                                            : activeEngine === "xgb"
-                                                ? "XGB rank"
-                                                : "n/a";
+                                            : "XGB rank";
                                 return (
                                     <article
                                         key={plant._id || plant.id}
@@ -589,7 +590,27 @@ export default function Recommender() {
                                                     />
                                                 </div>
 
-                                                <div className="mt-5 flex justify-end">
+                                                <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                                                    {group.alternatives.length > 0 ? (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() =>
+                                                                setExpandedGroups((prev) => ({
+                                                                    ...prev,
+                                                                    [group.key]: !prev[group.key],
+                                                                }))
+                                                            }
+                                                            className="inline-flex items-center gap-2 rounded-full border border-[#dbe6cf] bg-[#f8fbf3] px-4 py-2 text-sm font-semibold text-greenDark transition hover:bg-white"
+                                                        >
+                                                            {groupIsExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                                                            {groupIsExpanded
+                                                                ? `Hide ${group.alternatives.length} similar ${group.label.toLowerCase()} options`
+                                                                : `Show ${group.alternatives.length} similar ${group.label.toLowerCase()} options`}
+                                                        </button>
+                                                    ) : (
+                                                        <span />
+                                                    )}
+
                                                     <Link
                                                         to={`/plant/${plant.id}`}
                                                         className="inline-flex items-center gap-2 text-sm font-semibold text-landingPageIcons no-underline transition hover:text-darkLandingPageIcons"
@@ -600,6 +621,81 @@ export default function Recommender() {
                                                 </div>
                                             </div>
                                         </div>
+
+                                        {group.alternatives.length > 0 && groupIsExpanded && (
+                                            <div className="border-t border-greenBorder bg-[#fbfcf8] px-6 py-5">
+                                                <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-greenMid">
+                                                    Similar {group.label} alternatives
+                                                </div>
+                                                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                                                    {group.alternatives.map((alternative) => {
+                                                        const alternativeFavourite = isFavourite(alternative.id);
+                                                        return (
+                                                            <div
+                                                                key={alternative._id || alternative.id}
+                                                                className="rounded-[18px] border border-[#dbe6cf] bg-white p-4"
+                                                            >
+                                                                <div className="flex items-start gap-3">
+                                                                    <div className="h-16 w-16 shrink-0 overflow-hidden rounded-[16px] bg-[#edf4e3]">
+                                                                        {alternative.image_url ? (
+                                                                            <img
+                                                                                src={alternative.image_url}
+                                                                                alt={alternative.common_name}
+                                                                                className="h-full w-full object-cover"
+                                                                            />
+                                                                        ) : (
+                                                                            <div className="flex h-full w-full items-center justify-center text-greenDark">
+                                                                                <Leaf size={18} />
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <Link to={`/plant/${alternative.id}`} className="no-underline">
+                                                                            <div className="truncate font-semibold text-greenDark hover:text-landingPageIcons">
+                                                                                {alternative.common_name}
+                                                                            </div>
+                                                                        </Link>
+                                                                        <div className="truncate text-[12px] italic text-greenMuted">
+                                                                            {alternative.latin_name}
+                                                                        </div>
+                                                                        <div className="mt-2 flex flex-wrap gap-2">
+                                                                            {alternative.fit_label && (
+                                                                                <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${fitBadgeClass(alternative.fit_label)}`}>
+                                                                                    {alternative.fit_label}
+                                                                                </span>
+                                                                            )}
+                                                                            {alternative.type && (
+                                                                                <span className="rounded-full border border-greenBorder bg-greenLight px-2.5 py-1 text-[10px] font-medium text-[#4a5e38]">
+                                                                                    {alternative.type}
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                    {user && (
+                                                                        <button
+                                                                            onClick={() => toggleFavourite(alternative.id)}
+                                                                            className={`flex h-9 w-9 items-center justify-center rounded-xl transition ${
+                                                                                alternativeFavourite
+                                                                                    ? "bg-yellow-400 text-white"
+                                                                                    : "bg-greenLight text-gray-400 hover:bg-yellow-400 hover:text-white"
+                                                                            }`}
+                                                                            title={alternativeFavourite ? "Remove from favourites" : "Add to favourites"}
+                                                                        >
+                                                                            <Star size={14} fill={alternativeFavourite ? "currentColor" : "none"} />
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                                {alternative.why_it_fits?.length > 0 && (
+                                                                    <p className="mt-3 text-[12px] leading-5 text-greenMid">
+                                                                        {alternative.why_it_fits[0]}
+                                                                    </p>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
 
                                         {debugMode && plant.breakdown && (
                                             <div className="border-t border-[#1a2e0a] bg-[#0f1a0a] px-6 py-4 font-mono text-[12px]">
@@ -643,6 +739,108 @@ export default function Recommender() {
                                     </article>
                                 );
                             })}
+
+                            {additionalGoodGroups.length > 0 && (
+                                <div className="rounded-[24px] border border-greenBorder bg-white p-5">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-greenMid">
+                                                Expanded Shortlist
+                                            </div>
+                                            <div className="mt-1 font-playfair text-[24px] text-greenDark">
+                                                More acceptable matches
+                                            </div>
+                                            <div className="mt-1 text-[13px] text-greenMid">
+                                                These are still useful recommendations beyond the main diverse shortlist.
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowMoreGoodMatches((prev) => !prev)}
+                                            className="inline-flex items-center gap-2 rounded-full border border-[#dbe6cf] bg-[#f8fbf3] px-4 py-2 text-sm font-semibold text-greenDark transition hover:bg-white"
+                                        >
+                                            {showMoreGoodMatches ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                                            {showMoreGoodMatches
+                                                ? `Hide ${additionalGoodGroups.length} more good matches`
+                                                : `Show ${additionalGoodGroups.length} more good matches`}
+                                        </button>
+                                    </div>
+
+                                    {showMoreGoodMatches && (
+                                        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                                            {additionalGoodGroups.map((group) => {
+                                                const plant = group.primary;
+                                                const extraCount = Array.isArray(group.alternatives) ? group.alternatives.length : 0;
+                                                return (
+                                                    <div
+                                                        key={`extra-${group.key}`}
+                                                        className="rounded-[20px] border border-[#dbe6cf] bg-[#fbfcf8] p-4"
+                                                    >
+                                                        <div className="flex items-start gap-3">
+                                                            <div className="h-16 w-16 shrink-0 overflow-hidden rounded-[16px] bg-[#edf4e3]">
+                                                                {plant.image_url ? (
+                                                                    <img
+                                                                        src={plant.image_url}
+                                                                        alt={plant.common_name}
+                                                                        className="h-full w-full object-cover"
+                                                                    />
+                                                                ) : (
+                                                                    <div className="flex h-full w-full items-center justify-center text-greenDark">
+                                                                        <Leaf size={18} />
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div className="min-w-0 flex-1">
+                                                                <Link to={`/plant/${plant.id}`} className="no-underline">
+                                                                    <div className="truncate font-semibold text-greenDark hover:text-landingPageIcons">
+                                                                        {plant.common_name}
+                                                                    </div>
+                                                                </Link>
+                                                                <div className="truncate text-[12px] italic text-greenMuted">
+                                                                    {plant.latin_name}
+                                                                </div>
+                                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                                    {plant.fit_label && (
+                                                                        <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.12em] ${fitBadgeClass(plant.fit_label)}`}>
+                                                                            {plant.fit_label}
+                                                                        </span>
+                                                                    )}
+                                                                    {plant.type && (
+                                                                        <span className="rounded-full border border-greenBorder bg-greenLight px-2.5 py-1 text-[10px] font-medium text-[#4a5e38]">
+                                                                            {plant.type}
+                                                                        </span>
+                                                                    )}
+                                                                    {extraCount > 0 && (
+                                                                        <span className="rounded-full border border-[#dbe6cf] bg-white px-2.5 py-1 text-[10px] font-medium text-greenMid">
+                                                                            +{extraCount} similar
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {plant.why_it_fits?.length > 0 && (
+                                                            <p className="mt-3 text-[12px] leading-5 text-greenMid">
+                                                                {plant.why_it_fits[0]}
+                                                            </p>
+                                                        )}
+
+                                                        <div className="mt-4 flex justify-end">
+                                                            <Link
+                                                                to={`/plant/${plant.id}`}
+                                                                className="inline-flex items-center gap-2 text-sm font-semibold text-landingPageIcons no-underline transition hover:text-darkLandingPageIcons"
+                                                            >
+                                                                Open Plant
+                                                                <ChevronRight size={15} />
+                                                            </Link>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     ) : results && results.length === 0 ? (
                         <div className="flex min-h-[420px] flex-col items-center justify-center rounded-[24px] border border-greenBorder bg-white px-8 py-16 text-center">

@@ -1,18 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { ImagePlus, Leaf, PlusCircle, Search, ShieldCheck, Sprout, UserCog, Users, X } from "lucide-react";
+import { Crown, ImagePlus, Leaf, PlusCircle, Search, ShieldCheck, Sprout, UserCog, Users, X } from "lucide-react";
+import Navbar from "../components/Navbar";
 import { useAuth } from "../context/AuthContext";
+import { usePageScrollRestoration, useSessionStorageState } from "../hooks/usePagePersistence";
+import { buildUrl } from "../services/authService.jsx";
 
 const SYSTEM_ROLE_OPTIONS = [
     { value: "user", label: "User" },
     { value: "admin", label: "Admin" },
     { value: "superadmin", label: "Superadmin" },
-];
-
-const CATALOG_STATUS_OPTIONS = [
-    { value: "recommendable", label: "Recommendable" },
-    { value: "excluded", label: "Excluded" },
-    { value: "unset", label: "Unset" },
 ];
 
 const PLANT_TYPE_OPTIONS = [
@@ -51,7 +48,6 @@ const EMPTY_PLANT_FORM = {
     imageUrl: "",
     imageDataUrl: "",
     imageFileName: "",
-    catalogStatus: "recommendable",
 };
 
 const FIELD_CLASS = "w-full rounded-2xl border border-[#dce7cf] bg-white px-4 py-3 text-sm text-greenDark outline-none transition focus:border-landingPageIcons";
@@ -71,22 +67,6 @@ const rolePill = (value) =>
             ? "bg-[#e9f6dc] text-[#49661d]"
             : "bg-[#eef3e7] text-greenMid";
 
-const statusPill = (value) =>
-    value === "recommendable"
-        ? "bg-[#e9f6dc] text-[#49661d]"
-        : value === "excluded"
-            ? "bg-[#fff0ee] text-[#b64035]"
-            : "bg-[#eef3e7] text-greenMid";
-
-const statusButton = (active, value) => {
-    if (active) {
-        if (value === "recommendable") return "border-[#7da049] bg-[#4f7216] text-white";
-        if (value === "excluded") return "border-[#dd8d84] bg-[#b64035] text-white";
-        return "border-[#b9c8a9] bg-[#6b7c5e] text-white";
-    }
-    return "border-[#dbe6cf] bg-white text-greenMid hover:border-[#bfd1aa] hover:text-greenDark";
-};
-
 const Notice = ({ notice }) =>
     notice.text ? (
         <div
@@ -101,28 +81,29 @@ const Notice = ({ notice }) =>
     ) : null;
 
 export default function AdminPage() {
-    const { user, isAdmin, isSuperAdmin } = useAuth();
+    const { user, isAdmin, isSuperAdmin, updateUser } = useAuth();
     const [users, setUsers] = useState([]);
     const [usersLoading, setUsersLoading] = useState(true);
     const [usersError, setUsersError] = useState("");
     const [userNotice, setUserNotice] = useState({ text: "", type: "" });
     const [draftRoles, setDraftRoles] = useState({});
     const [savingUserId, setSavingUserId] = useState(null);
+    const [savingSubscriptionUserId, setSavingSubscriptionUserId] = useState(null);
 
     const [plants, setPlants] = useState([]);
     const [plantsLoading, setPlantsLoading] = useState(true);
     const [plantsError, setPlantsError] = useState("");
-    const [plantNotice, setPlantNotice] = useState({ text: "", type: "" });
     const [createPlantNotice, setCreatePlantNotice] = useState({ text: "", type: "" });
-    const [savingPlantId, setSavingPlantId] = useState(null);
-    const [plantSearchInput, setPlantSearchInput] = useState("");
-    const [plantSearch, setPlantSearch] = useState("");
-    const [plantPage, setPlantPage] = useState(1);
+    const [plantSearchInput, setPlantSearchInput] = useSessionStorageState("page:admin:plant-search-input", "");
+    const [plantSearch, setPlantSearch] = useSessionStorageState("page:admin:plant-search", "");
+    const [plantPage, setPlantPage] = useSessionStorageState("page:admin:plant-page", 1);
     const [plantTotal, setPlantTotal] = useState(0);
     const [plantTotalPages, setPlantTotalPages] = useState(1);
     const [plantRefreshKey, setPlantRefreshKey] = useState(0);
-    const [createPlantForm, setCreatePlantForm] = useState(() => ({ ...EMPTY_PLANT_FORM }));
+    const [createPlantForm, setCreatePlantForm] = useSessionStorageState("page:admin:create-plant-form", () => ({ ...EMPTY_PLANT_FORM }));
     const [creatingPlant, setCreatingPlant] = useState(false);
+
+    usePageScrollRestoration("page:admin", !usersLoading && !plantsLoading);
 
     useEffect(() => {
         if (!isAdmin) return;
@@ -131,7 +112,7 @@ export default function AdminPage() {
                 setUsersLoading(true);
                 setUsersError("");
                 const token = localStorage.getItem("token");
-                const res = await fetch("http://localhost:5000/admin/users", {
+                const res = await fetch(buildUrl("/admin/users"), {
                     headers: { Authorization: `Bearer ${token}` },
                 });
                 const data = await res.json().catch(() => ({}));
@@ -157,7 +138,7 @@ export default function AdminPage() {
                 const token = localStorage.getItem("token");
                 const params = new URLSearchParams({ page: String(plantPage), limit: "12" });
                 if (plantSearch) params.set("search", plantSearch);
-                const res = await fetch(`http://localhost:5000/admin/plants?${params.toString()}`, {
+                const res = await fetch(`${buildUrl("/admin/plants")}?${params.toString()}`, {
                     headers: { Authorization: `Bearer ${token}` },
                 });
                 const data = await res.json().catch(() => ({}));
@@ -180,10 +161,9 @@ export default function AdminPage() {
             total: users.length,
             admins: users.filter((entry) => entry.systemRole === "admin").length,
             superadmins: users.filter((entry) => entry.systemRole === "superadmin").length,
-            recommendable: plants.filter((plant) => plant.adminCatalogStatus === "recommendable").length,
-            excluded: plants.filter((plant) => plant.adminCatalogStatus === "excluded").length,
+            premium: users.filter((entry) => entry.subscriptionPlan === "premium" && entry.premiumStatus === "active").length,
         }),
-        [users, plants]
+        [users]
     );
     const createPlantPreview = createPlantForm.imageUrl.trim() || createPlantForm.imageDataUrl;
 
@@ -192,7 +172,7 @@ export default function AdminPage() {
             setSavingUserId(targetUserId);
             setUserNotice({ text: "", type: "" });
             const token = localStorage.getItem("token");
-            const res = await fetch(`http://localhost:5000/admin/users/${targetUserId}/system-role`, {
+            const res = await fetch(buildUrl(`/admin/users/${targetUserId}/system-role`), {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
                 body: JSON.stringify({ systemRole: draftRoles[targetUserId] }),
@@ -209,25 +189,52 @@ export default function AdminPage() {
         }
     };
 
-    const handlePlantStatusSave = async (plantId, catalogStatus) => {
+    const handleSubscriptionToggle = async (targetUserId, enablePremium) => {
         try {
-            setSavingPlantId(plantId);
-            setPlantNotice({ text: "", type: "" });
+            setSavingSubscriptionUserId(targetUserId);
+            setUserNotice({ text: "", type: "" });
             const token = localStorage.getItem("token");
-            const res = await fetch(`http://localhost:5000/admin/plants/${plantId}/catalog-status`, {
+            const res = await fetch(buildUrl(`/admin/users/${targetUserId}/subscription`), {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ catalogStatus }),
+                body: JSON.stringify({
+                    subscriptionPlan: enablePremium ? "premium" : "free",
+                    premiumStatus: enablePremium ? "active" : "inactive",
+                }),
             });
             const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data.message || "Failed to update plant status.");
-            setPlants((prev) => prev.map((plant) => (plant.id === plantId ? { ...plant, adminCatalogStatus: catalogStatus } : plant)));
-            setPlantNotice({ text: "Plant catalog status updated successfully.", type: "success" });
+            if (!res.ok) throw new Error(data.message || "Failed to update premium access.");
+
+            setUsers((prev) =>
+                prev.map((entry) =>
+                    entry._id === targetUserId
+                        ? {
+                              ...entry,
+                              subscriptionPlan: data.user?.subscriptionPlan || (enablePremium ? "premium" : "free"),
+                              premiumStatus: data.user?.premiumStatus || (enablePremium ? "active" : "inactive"),
+                              premiumActivatedAt: data.user?.premiumActivatedAt || null,
+                              premiumExpiresAt: data.user?.premiumExpiresAt || null,
+                          }
+                        : entry
+                )
+            );
+            if (String(user?._id) === String(targetUserId)) {
+                updateUser({
+                    subscriptionPlan: data.user?.subscriptionPlan || (enablePremium ? "premium" : "free"),
+                    premiumStatus: data.user?.premiumStatus || (enablePremium ? "active" : "inactive"),
+                    premiumActivatedAt: data.user?.premiumActivatedAt || null,
+                    premiumExpiresAt: data.user?.premiumExpiresAt || null,
+                });
+            }
+            setUserNotice({
+                text: enablePremium ? "Premium access enabled successfully." : "Premium access removed successfully.",
+                type: "success",
+            });
         } catch (err) {
-            console.error("Failed to update plant catalog status:", err);
-            setPlantNotice({ text: err.message || "Failed to update plant status.", type: "error" });
+            console.error("Failed to update premium access:", err);
+            setUserNotice({ text: err.message || "Failed to update premium access.", type: "error" });
         } finally {
-            setSavingPlantId(null);
+            setSavingSubscriptionUserId(null);
         }
     };
 
@@ -288,10 +295,9 @@ export default function AdminPage() {
                 description: createPlantForm.description,
                 imageUrl: createPlantForm.imageUrl,
                 imageDataUrl: createPlantForm.imageDataUrl,
-                catalogStatus: createPlantForm.catalogStatus,
             };
 
-            const res = await fetch("http://localhost:5000/admin/plants", {
+            const res = await fetch(buildUrl("/admin/plants"), {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
                 body: JSON.stringify(payload),
@@ -324,6 +330,7 @@ export default function AdminPage() {
     if (!isAdmin) {
         return (
             <div className="min-h-screen bg-greenLight px-4 pb-12 pt-28 font-dm">
+                <Navbar />
                 <div className="mx-auto max-w-3xl rounded-[32px] border border-white/70 bg-white/88 p-10 text-center shadow-[0_24px_70px_rgba(52,78,24,0.12)]">
                     <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[#eef4e5] text-landingPageIcons"><ShieldCheck size={26} /></div>
                     <h1 className="font-playfair text-4xl text-greenDark">Admin Access Required</h1>
@@ -335,18 +342,20 @@ export default function AdminPage() {
 
     return (
         <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(255,255,255,0.95),_rgba(228,237,216,0.96)_36%,_rgba(205,219,188,0.98)_100%)] px-4 pb-12 pt-28 font-dm">
+            <Navbar />
             <div className="mx-auto max-w-7xl space-y-8">
                 <section className="rounded-[34px] border border-white/70 bg-white/88 p-8 shadow-[0_28px_90px_rgba(52,78,24,0.14)] backdrop-blur-sm md:p-10">
                     <div className="flex flex-wrap items-start justify-between gap-6">
                         <div>
                             <div className="inline-flex items-center gap-2 rounded-full border border-[#dbe6cf] bg-[#eef4e5] px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-landingPageIcons"><ShieldCheck size={13} />Admin Panel</div>
                             <h1 className="mt-4 font-playfair text-4xl text-greenDark">Admin Management</h1>
-                            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-greenMid">Manage elevated roles and curate the recommendable plant catalog from one place.</p>
+                            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-greenMid">Manage elevated roles and review the imported plant catalog from one place.</p>
                         </div>
-                        <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="grid gap-3 sm:grid-cols-4">
                             <StatCard label="Users" value={counts.total} />
                             <StatCard label="Admins" value={counts.admins} />
                             <StatCard label="Superadmins" value={counts.superadmins} />
+                            <StatCard label="Premium" value={counts.premium} />
                         </div>
                     </div>
                     <div className="mt-6"><Notice notice={userNotice} /></div>
@@ -499,17 +508,6 @@ export default function AdminPage() {
                                 />
                             </label>
 
-                            <label className="block">
-                                <span className="mb-2 block text-xs font-bold uppercase tracking-[0.16em] text-greenMid">Catalog Status</span>
-                                <select
-                                    value={createPlantForm.catalogStatus}
-                                    onChange={(e) => updateCreatePlantField("catalogStatus", e.target.value)}
-                                    className={FIELD_CLASS}
-                                >
-                                    {CATALOG_STATUS_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                                </select>
-                            </label>
-
                             <label className="block sm:col-span-2">
                                 <span className="mb-2 block text-xs font-bold uppercase tracking-[0.16em] text-greenMid">Description</span>
                                 <textarea
@@ -628,29 +626,53 @@ export default function AdminPage() {
                                         <Chip>{entry.verified ? "Verified" : "Unverified"}</Chip>
                                         <Chip>{entry.role || "Gardener"}</Chip>
                                         {entry.location ? <Chip>{entry.location}</Chip> : null}
+                                        <Chip>{entry.subscriptionPlan === "premium" && entry.premiumStatus === "active" ? "Premium Active" : "Free Plan"}</Chip>
                                     </div>
                                     <div className="mb-5 grid gap-3 sm:grid-cols-2">
                                         <MiniStat label="Favourites" value={entry.favouritesCount} />
                                         <MiniStat label="Saved Gardens" value={entry.savedGardensCount} />
                                     </div>
                                     {isSuperAdmin ? (
-                                        <div className="flex flex-wrap items-center gap-3">
-                                            <div className="relative min-w-[180px] flex-1">
-                                                <UserCog size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-greenMid" />
-                                                <select
-                                                    value={draftRoles[entry._id] || entry.systemRole}
-                                                    onChange={(e) => setDraftRoles((prev) => ({ ...prev, [entry._id]: e.target.value }))}
-                                                    className="w-full rounded-2xl border border-[#dce7cf] bg-white py-3 pl-11 pr-4 text-sm text-greenDark outline-none transition focus:border-landingPageIcons"
+                                        <div className="space-y-3">
+                                            <div className="flex flex-wrap items-center gap-3">
+                                                <div className="relative min-w-[180px] flex-1">
+                                                    <UserCog size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-greenMid" />
+                                                    <select
+                                                        value={draftRoles[entry._id] || entry.systemRole}
+                                                        onChange={(e) => setDraftRoles((prev) => ({ ...prev, [entry._id]: e.target.value }))}
+                                                        className="w-full rounded-2xl border border-[#dce7cf] bg-white py-3 pl-11 pr-4 text-sm text-greenDark outline-none transition focus:border-landingPageIcons"
+                                                    >
+                                                        {SYSTEM_ROLE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                                    </select>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleRoleSave(entry._id)}
+                                                    disabled={savingUserId === entry._id || draftRoles[entry._id] === entry.systemRole}
+                                                    className="inline-flex items-center gap-2 rounded-2xl bg-landingPageIcons px-4 py-3 text-sm font-semibold text-white transition hover:bg-darkLandingPageIcons disabled:cursor-not-allowed disabled:opacity-60"
                                                 >
-                                                    {SYSTEM_ROLE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                                                </select>
+                                                    {savingUserId === entry._id ? "Saving..." : "Update Role"}
+                                                </button>
                                             </div>
                                             <button
-                                                onClick={() => handleRoleSave(entry._id)}
-                                                disabled={savingUserId === entry._id || draftRoles[entry._id] === entry.systemRole}
-                                                className="inline-flex items-center gap-2 rounded-2xl bg-landingPageIcons px-4 py-3 text-sm font-semibold text-white transition hover:bg-darkLandingPageIcons disabled:cursor-not-allowed disabled:opacity-60"
+                                                onClick={() =>
+                                                    handleSubscriptionToggle(
+                                                        entry._id,
+                                                        !(entry.subscriptionPlan === "premium" && entry.premiumStatus === "active")
+                                                    )
+                                                }
+                                                disabled={savingSubscriptionUserId === entry._id}
+                                                className={`inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                                                    entry.subscriptionPlan === "premium" && entry.premiumStatus === "active"
+                                                        ? "bg-[#fff4cc] text-[#7b5f0e] hover:bg-[#ffedaf]"
+                                                        : "bg-[#edf4e3] text-landingPageIcons hover:bg-[#e4eed6]"
+                                                }`}
                                             >
-                                                {savingUserId === entry._id ? "Saving..." : "Update Role"}
+                                                <Crown size={15} />
+                                                {savingSubscriptionUserId === entry._id
+                                                    ? "Saving..."
+                                                    : entry.subscriptionPlan === "premium" && entry.premiumStatus === "active"
+                                                        ? "Disable Premium"
+                                                        : "Enable Premium"}
                                             </button>
                                         </div>
                                     ) : <div className="rounded-2xl border border-[#dbe6cf] bg-white px-4 py-3 text-sm text-greenMid">Only a superadmin can change roles.</div>}
@@ -663,16 +685,13 @@ export default function AdminPage() {
                 <section className="rounded-[32px] border border-white/70 bg-white/88 p-7 shadow-[0_24px_70px_rgba(52,78,24,0.12)] backdrop-blur-sm md:p-9">
                     <div className="flex flex-wrap items-start justify-between gap-5">
                         <div>
-                            <SectionHeader icon={Sprout} badge="Plant Catalog" title="Recommendable Plant Review" />
-                            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-greenMid">Search the imported database and mark records as recommendable, excluded, or leave them unset.</p>
+                            <SectionHeader icon={Sprout} badge="Plant Catalog" title="Plant Catalog Review" />
+                            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-greenMid">Search the imported database and review the imported records in a cleaner read-only list.</p>
                         </div>
-                        <div className="grid gap-3 sm:grid-cols-3">
+                        <div className="grid gap-3 sm:grid-cols-1">
                             <StatCard label="Results" value={plantTotal} />
-                            <StatCard label="Visible Recommendable" value={counts.recommendable} />
-                            <StatCard label="Visible Excluded" value={counts.excluded} />
                         </div>
                     </div>
-                    <div className="mt-6"><Notice notice={plantNotice} /></div>
 
                     <form
                         onSubmit={(e) => {
@@ -732,33 +751,17 @@ export default function AdminPage() {
                                                 {imageSrc ? <img src={imageSrc} alt={commonName} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-greenMid"><Leaf size={28} /></div>}
                                             </div>
                                             <div className="p-5">
-                                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                                <div className="min-w-0">
                                                     <div className="min-w-0">
                                                         <h3 className="font-playfair text-2xl text-greenDark">{commonName}</h3>
                                                         <p className="mt-1 text-sm italic text-greenMid">{scientificLabel || "No scientific name"}</p>
                                                     </div>
-                                                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusPill(plant.adminCatalogStatus || "unset")}`}>{plant.adminCatalogStatus || "unset"}</span>
                                                 </div>
                                                 <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-greenMid">
                                                     <Chip>ID {plant.id}</Chip>
                                                     {plant.details?.type ? <Chip>{plant.details.type}</Chip> : null}
                                                     {plant.details?.cycle ? <Chip>{plant.details.cycle}</Chip> : null}
                                                     {plant.details?.watering ? <Chip>{plant.details.watering}</Chip> : null}
-                                                </div>
-                                                <div className="mt-5 flex flex-wrap gap-2">
-                                                    {CATALOG_STATUS_OPTIONS.map((option) => {
-                                                        const active = (plant.adminCatalogStatus || "unset") === option.value;
-                                                        return (
-                                                            <button
-                                                                key={option.value}
-                                                                onClick={() => handlePlantStatusSave(plant.id, option.value)}
-                                                                disabled={savingPlantId === plant.id || active}
-                                                                className={`rounded-2xl border px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-70 ${statusButton(active, option.value)}`}
-                                                            >
-                                                                {savingPlantId === plant.id && active ? "Saving..." : option.label}
-                                                            </button>
-                                                        );
-                                                    })}
                                                 </div>
                                             </div>
                                         </div>

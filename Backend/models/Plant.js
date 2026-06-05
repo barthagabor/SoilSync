@@ -16,21 +16,23 @@ const PlantSchema = new mongoose.Schema({
         regular_url: String,
         medium_url: String,
         small_url: String,
-        thumbnail: String
+        thumbnail: String,
     },
 
-    // A te eddigi listás importodból jövő adatok
     cycle: { type: String },
     watering: { type: String },
     sunlight: { type: [String] },
 
-    // MIGRÁCIÓ UTÁN KERÜL IDE:
-    details: { type: Object },                      // Az egész tisztított részletes adat
+    details: { type: Object },
+    eppoMatched: { type: Boolean, default: false, index: true },
+    eppoMatchStatus: { type: String, default: "unmatched" },
+    hasCloudinaryImage: { type: Boolean, default: false, index: true },
+    imageStorageProvider: { type: String, default: "unknown" },
 
     imported_at: { type: Date, default: Date.now },
     updated_at: { type: Date, default: Date.now },
 });
-const Plant = mongoose.model("Plant", PlantSchema, "Perenual_Plants");
 
+const Plant = mongoose.model("Plant", PlantSchema, "Perenual_Plants");
 
 export default Plant;

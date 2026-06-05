@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Eye, EyeOff, Leaf, Mail, Lock, User } from "lucide-react";
-import { registerApi } from "../services/authService";
+import { registerUserRequest } from "../services/authService.jsx";
 
 export default function SignUpForm() {
     const [name, setName] = useState("");
@@ -39,12 +39,12 @@ export default function SignUpForm() {
         if (!validateEmail(email)) { setError("Please enter a valid email address!"); return; }
         if (!validatePassword(password)) { setError("Password must be at least 6 characters with uppercase and lowercase letters."); return; }
         try {
-            await registerApi(name, email, password);
+            await registerUserRequest({ name, email, password });
             setSuccess("Registration successful! Please check your email to verify your account.");
             setName(""); setEmail(""); setPassword("");
             setTimeout(() => setSuccess(""), 5000);
         } catch (err) {
-            setError(err.message);
+            setError(err.message || "Failed to connect to the server.");
         }
     }
 

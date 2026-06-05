@@ -1,12 +1,12 @@
 import User from "../models/User.js";
 import crypto from "crypto";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-// Feltételezem, hogy ezek a fájlok megvannak, ha korábban működött
 import { sendVerificationEmail, sendPasswordResetEmail } from "../utils/sendEmail.js";
+import { ensureCommunityIdentity } from "../services/communityIdentityService.js";
+import { getJwtSecret } from "../utils/jwt.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || "szupertitkoskulcs_soilsync_2025";
-
+const shouldRequireEmailVerification = () => process.env.REQUIRE_EMAIL_VERIFICATION !== "false";
 
 export const registerUser = async (req, res) => {
     const { name, email, password } = req.body;
@@ -17,26 +17,39 @@ export const registerUser = async (req, res) => {
             return res.status(400).json({ message: "Email is already registered." });
         }
 
-        const verificationToken = Math.random().toString(36).substring(2, 15);
+        const requireEmailVerification = shouldRequireEmailVerification();
+        const verificationToken = requireEmailVerification ? Math.random().toString(36).substring(2, 15) : null;
 
         const newUser = new User({
             name,
             email,
             password,
             verificationToken,
+            verified: !requireEmailVerification,
         });
 
+        await ensureCommunityIdentity(newUser);
         await newUser.save();
 
-        await sendVerificationEmail(email, verificationToken);
+        if (requireEmailVerification) {
+            try {
+                await sendVerificationEmail(email, verificationToken);
+            } catch (emailError) {
+                await User.deleteOne({ _id: newUser._id });
+                throw emailError;
+            }
+        }
 
-        res.status(201).json({ message: "Registration successful! Please verify your email." });
+        res.status(201).json({
+            message: requireEmailVerification
+                ? "Registration successful! Please verify your email."
+                : "Registration successful! You can now log in.",
+        });
     } catch (err) {
         console.error(err);
         res.status(500).json({ message: "Server error during registration." });
     }
 };
-
 
 export const verifyEmail = async (req, res) => {
     const { token } = req.params;
@@ -51,12 +64,11 @@ export const verifyEmail = async (req, res) => {
         user.verificationToken = null;
         await user.save();
 
-        res.send("✅ Email successfully verified! You can now log in.");
+        res.send("Email successfully verified! You can now log in.");
     } catch (err) {
         res.status(500).send("Server error during verification.");
     }
 };
-
 
 export const forgotPassword = async (req, res) => {
     try {
@@ -80,7 +92,6 @@ export const forgotPassword = async (req, res) => {
         res.status(500).json({ message: "Server error." });
     }
 };
-
 
 export const resetPassword = async (req, res) => {
     try {
@@ -112,13 +123,12 @@ export const resetPassword = async (req, res) => {
     }
 };
 
-
 export const loginUser = async (req, res) => {
     const { identifier, password } = req.body;
 
     try {
         const user = await User.findOne({
-            $or: [{ email: identifier }, { name: identifier }],
+            $or: [{ email: identifier }, { name: identifier }, { communityUsername: identifier }],
         });
 
         if (!user) {
@@ -134,19 +144,30 @@ export const loginUser = async (req, res) => {
             return res.status(401).json({ message: "Invalid password." });
         }
 
-        const token = jwt.sign({ userId: user._id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+        const token = jwt.sign(
+            { userId: user._id, email: user.email },
+            getJwtSecret(),
+            { expiresIn: "7d" }
+        );
+
+        await ensureCommunityIdentity(user, { save: true });
 
         res.status(200).json({
             message: "Login successful!",
-            token: token,
+            token,
             user: {
                 _id: user._id,
                 name: user.name,
                 email: user.email,
+                communityUsername: user.communityUsername,
                 profileImage: user.profileImage,
                 role: user.role,
                 systemRole: user.systemRole,
-            }
+                subscriptionPlan: user.subscriptionPlan,
+                premiumStatus: user.premiumStatus,
+                premiumActivatedAt: user.premiumActivatedAt,
+                premiumExpiresAt: user.premiumExpiresAt,
+            },
         });
     } catch (err) {
         console.error("Login error:", err);
@@ -154,10 +175,10 @@ export const loginUser = async (req, res) => {
     }
 };
 
-
 export const getUserProfile = async (req, res) => {
     try {
         const user = await User.findById(req.user.userId).select("-password");
+        await ensureCommunityIdentity(user, { save: true });
         res.json(user);
     } catch (err) {
         res.status(500).json({ message: "Error fetching profile." });
@@ -174,6 +195,7 @@ export const updateUserProfile = async (req, res) => {
         if (location) user.location = location;
         if (profileImage) user.profileImage = profileImage;
 
+        await ensureCommunityIdentity(user);
         await user.save();
         res.json({ message: "Profile updated successfully!", user });
     } catch (err) {

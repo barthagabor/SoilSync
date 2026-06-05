@@ -1,0 +1,53 @@
+services:
+  - type: web
+    name: soilsync-backend
+    runtime: docker
+    plan: free
+    dockerContext: ./Backend
+    dockerfilePath: ./Backend/Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "5000"
+      - key: FRONTEND_URL
+        sync: false
+      - key: BACKEND_PUBLIC_URL
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: REQUIRE_EMAIL_VERIFICATION
+        value: "true"
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: EMAIL_FROM
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_REPLY_TO
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GOOGLE_GENAI_API_VERSION
+        sync: false
+      - key: PREMIUM_ASSISTANT_MODEL
+        value: gemini-2.5-pro
+      - key: GARDEN_SVG_MODEL
+        value: gemini-2.5-flash
+      - key: PLANNER_IMAGE_MODEL
+        value: gemini-3.1-flash-image-preview
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: EPPO_API_KEY
+        sync: false
+      - key: EPPO_BASE_URL
+        value: https://api.eppo.int/gd/v2

@@ -1,5 +1,6 @@
 import { createContext, useState, useEffect, useContext } from "react";
-import { getProfileApi, toggleFavouriteApi } from "../services/authService";
+import { fetchUserProfile, toggleFavouriteRequest } from "../services/authService.jsx";
+
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
@@ -12,7 +13,7 @@ export function AuthProvider({ children }) {
             const token = localStorage.getItem("token");
             if (token) {
                 try {
-                    const userData = await getProfileApi(); // <-- Milyen szép tiszta!
+                    const userData = await fetchUserProfile(token);
                     setUser(userData);
                     setFavourites(userData.favourites || []);
                 } catch (err) {
@@ -44,28 +45,35 @@ export function AuthProvider({ children }) {
         setUser(prev => ({ ...prev, ...newUserData }));
     };
 
+    // Optimista UI update + backend szinkron
     const toggleFavourite = async (plantId) => {
         const id = Number(plantId);
-        if (!localStorage.getItem("token")) return;
+        const token = localStorage.getItem("token");
+        if (!token) return;
 
-        // Optimista UI frissítés
-        setFavourites(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]);
+        // Azonnal frissül a UI
+        setFavourites(prev =>
+            prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
+        );
 
         try {
-            const data = await toggleFavouriteApi(id); // <-- Csak egyetlen sor!
-            setFavourites(data.favourites);
+            const data = await toggleFavouriteRequest(token, id);
+            setFavourites(data.favourites || []);
         } catch {
-            // Hiba esetén visszavonjuk
-            setFavourites(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]);
+            setFavourites(prev =>
+                prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
+            );
         }
     };
+
 
     const isFavourite = (plantId) => favourites.includes(Number(plantId));
     const isAdmin = ["admin", "superadmin"].includes(user?.systemRole);
     const isSuperAdmin = user?.systemRole === "superadmin";
+    const isPremium = user?.subscriptionPlan === "premium" && user?.premiumStatus === "active";
 
     return (
-        <AuthContext.Provider value={{ user, login, logout, updateUser, loading, favourites, toggleFavourite, isFavourite, isAdmin, isSuperAdmin }}>
+        <AuthContext.Provider value={{ user, login, logout, updateUser, loading, favourites, toggleFavourite, isFavourite, isAdmin, isSuperAdmin, isPremium }}>
             {!loading && children}
         </AuthContext.Provider>
     );

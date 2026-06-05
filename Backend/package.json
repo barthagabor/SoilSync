@@ -1,0 +1,42 @@
+{
+  "name": "soilsync-backend",
+  "version": "1.0.0",
+  "main": "Server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node Server.js",
+    "dev": "nodemon Server.js",
+    "eppo:prepare:links": "node scripts/preparePlantEppoLinks.js",
+    "eppo:match": "node scripts/matchPlantsToEppo.js",
+    "eppo:sync:plant-flags": "node scripts/syncPlantEppoMatchFlags.js",
+    "plants:sync:image-flags": "node scripts/syncPlantCloudinaryImageFlags.js",
+    "eppo:test": "node scripts/testEppoApi.js",
+    "eppo:sync:infos": "node scripts/syncEppoTaxonInfosByCode.js",
+    "eppo:sync:taxon": "node scripts/syncEppoTaxonByCode.js",
+    "eppo:sync:distribution": "node scripts/syncEppoDistributionByCode.js",
+    "eppo:sync:pests": "node scripts/syncEppoPestsByCode.js",
+    "eppo:sync:pests:matched": "node scripts/syncMatchedPlantPests.js",
+    "eppo:sync:distributions:pests": "node scripts/syncPestDistributions.js",
+    "community:seed": "node scripts/seedCommunityDemo.js",
+    "plants:export:recommendable": "node scripts/exportRecommendablePlants.js",
+    "users:set-role": "node scripts/setUserSystemRole.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.46.0",
+    "axios": "^1.17.0",
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.9.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.24.0",
+    "nodemailer": "^8.0.10"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  }
+}

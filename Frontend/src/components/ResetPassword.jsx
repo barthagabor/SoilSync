@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { Eye, EyeOff, Lock, Leaf, ArrowLeft, ShieldCheck } from "lucide-react";
+import { resetPasswordRequest } from "../services/authService.jsx";
 
 export default function ResetPassword() {
     const { token } = useParams();
@@ -37,17 +38,12 @@ export default function ResetPassword() {
         if (password !== confirm) return setError("Passwords do not match.");
         try {
             setLoading(true);
-            const res = await fetch(`http://localhost:5000/reset-password/${token}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ password }),
-                credentials: "include",
-            });
-            const data = await res.json();
-            if (res.ok) { setDone(true); setPassword(""); setConfirm(""); }
-            else setError(data.message || "Something went wrong while updating your password.");
-        } catch {
-            setError("Unable to connect to the server. Please try again later.");
+            await resetPasswordRequest(token, { password });
+            setDone(true);
+            setPassword("");
+            setConfirm("");
+        } catch (err) {
+            setError(err.message || "Unable to connect to the server. Please try again later.");
         } finally {
             setLoading(false);
         }
