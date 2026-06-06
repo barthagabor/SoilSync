@@ -49,8 +49,11 @@ export const registerUser = async (req, res) => {
 
         if (requireEmailVerification) {
             try {
-                await sendVerificationEmail(email, verificationToken);
+                console.log("Sending verification email to:", normalizedEmail);
+                await sendVerificationEmail(normalizedEmail, verificationToken);
+                console.log("Verification email flow completed for:", normalizedEmail);
             } catch (emailError) {
+                console.error("Verification email failed:", emailError);
                 await User.deleteOne({ _id: newUser._id });
                 throw emailError;
             }

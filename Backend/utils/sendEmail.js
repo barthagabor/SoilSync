@@ -68,11 +68,26 @@ export const isEmailDeliveryConfigured = () => {
 };
 
 const sendWithSmtp = async ({ to, subject, text, html }) => {
-    if (!normalizeEnvValue(process.env.EMAIL_USER) || !normalizeEnvValue(process.env.EMAIL_PASS)) {
+    const smtpUser = normalizeEnvValue(process.env.EMAIL_USER);
+    const smtpPass = normalizeEnvValue(process.env.EMAIL_PASS);
+
+    if (!smtpUser || !smtpPass) {
         throw new Error("SMTP email delivery is not configured. Set EMAIL_USER and EMAIL_PASS.");
     }
 
-    await transporter.sendMail({
+    console.log("SMTP config:", {
+        provider: emailProvider,
+        host: smtpHost,
+        port: smtpPort,
+        secure: smtpSecure,
+        user: smtpUser,
+        from: emailFrom,
+        to,
+    });
+
+    await transporter.verify();
+
+    const info = await transporter.sendMail({
         from: `"SoilSync" <${emailFrom}>`,
         to,
         subject,
@@ -80,45 +95,22 @@ const sendWithSmtp = async ({ to, subject, text, html }) => {
         html,
         ...(emailReplyTo ? { replyTo: emailReplyTo } : {}),
     });
-};
 
-const sendWithResend = async ({ to, subject, text, html }) => {
-    const apiKey = normalizeEnvValue(process.env.RESEND_API_KEY);
-    if (!apiKey) {
-        throw new Error("Resend email delivery is not configured. Set RESEND_API_KEY.");
-    }
-
-    const response = await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            "User-Agent": "SoilSync/1.0",
-        },
-        body: JSON.stringify({
-            from: emailFrom,
-            to: [to],
-            subject,
-            text,
-            html,
-            ...(emailReplyTo ? { reply_to: emailReplyTo } : {}),
-        }),
+    console.log("SMTP email accepted:", {
+        messageId: info.messageId,
+        accepted: info.accepted,
+        rejected: info.rejected,
+        response: info.response,
     });
 
-    if (!response.ok) {
-        const details = await response.text().catch(() => "");
-        throw new Error(`Resend email delivery failed with status ${response.status}.${details ? ` ${details}` : ""}`);
+    if (!info.accepted || !info.accepted.includes(to)) {
+        throw new Error(`SMTP did not accept recipient ${to}. Rejected: ${JSON.stringify(info.rejected || [])}`);
     }
-};
 
+    return info;
+};
 const deliverEmail = async (payload) => {
     assertEmailSenderConfigured();
-
-    if (emailProvider === "resend") {
-        await sendWithResend(payload);
-        return;
-    }
-
     await sendWithSmtp(payload);
 };
 
