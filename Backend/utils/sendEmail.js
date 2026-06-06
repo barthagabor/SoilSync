@@ -19,25 +19,29 @@ const parseBooleanEnv = (value, fallback) => {
     return fallback;
 };
 
-const emailProvider = (
-    normalizeEnvValue(process.env.EMAIL_PROVIDER) ||
-    (normalizeEnvValue(process.env.RESEND_API_KEY) ? "resend" : "smtp")
-).toLowerCase();
+const emailProvider = normalizeEnvValue(process.env.EMAIL_PROVIDER || "smtp").toLowerCase();
 
 const emailFrom = normalizeEnvValue(process.env.EMAIL_FROM) || normalizeEnvValue(process.env.EMAIL_USER);
 const emailReplyTo = normalizeEnvValue(process.env.EMAIL_REPLY_TO);
+
 const smtpHost = normalizeEnvValue(process.env.EMAIL_HOST) || "smtp.gmail.com";
 const smtpPort = Number(normalizeEnvValue(process.env.EMAIL_PORT) || 465);
 const smtpSecure = parseBooleanEnv(process.env.EMAIL_SECURE, smtpPort === 465);
+
+const smtpUser = normalizeEnvValue(process.env.EMAIL_USER);
+const smtpPass = normalizeEnvValue(process.env.EMAIL_PASS);
 
 const transporter = nodemailer.createTransport({
     host: smtpHost,
     port: smtpPort,
     secure: smtpSecure,
     auth: {
-        user: normalizeEnvValue(process.env.EMAIL_USER),
-        pass: normalizeEnvValue(process.env.EMAIL_PASS),
+        user: smtpUser,
+        pass: smtpPass,
     },
+    connectionTimeout: 15000,
+    greetingTimeout: 15000,
+    socketTimeout: 20000,
 });
 
 const resolveBackendPublicUrl = () =>
@@ -52,28 +56,18 @@ const assertEmailSenderConfigured = () => {
     if (!emailFrom) {
         throw new Error("Email delivery is not configured. Set EMAIL_FROM or EMAIL_USER.");
     }
-};
-
-export const isEmailDeliveryConfigured = () => {
-    if (!emailFrom) return false;
-
-    if (emailProvider === "resend") {
-        return Boolean(normalizeEnvValue(process.env.RESEND_API_KEY));
-    }
-
-    return Boolean(
-        normalizeEnvValue(process.env.EMAIL_USER) &&
-        normalizeEnvValue(process.env.EMAIL_PASS)
-    );
-};
-
-const sendWithSmtp = async ({ to, subject, text, html }) => {
-    const smtpUser = normalizeEnvValue(process.env.EMAIL_USER);
-    const smtpPass = normalizeEnvValue(process.env.EMAIL_PASS);
 
     if (!smtpUser || !smtpPass) {
         throw new Error("SMTP email delivery is not configured. Set EMAIL_USER and EMAIL_PASS.");
     }
+};
+
+export const isEmailDeliveryConfigured = () => {
+    return Boolean(emailFrom && smtpUser && smtpPass);
+};
+
+const sendWithSmtp = async ({ to, subject, text, html }) => {
+    assertEmailSenderConfigured();
 
     console.log("SMTP config:", {
         provider: emailProvider,
@@ -85,32 +79,62 @@ const sendWithSmtp = async ({ to, subject, text, html }) => {
         to,
     });
 
-    await transporter.verify();
+    try {
+        console.log("Verifying SMTP connection...");
+        await transporter.verify();
+        console.log("SMTP connection verified.");
+    } catch (verifyError) {
+        console.error("SMTP verify failed:", {
+            message: verifyError.message,
+            code: verifyError.code,
+            command: verifyError.command,
+            response: verifyError.response,
+            responseCode: verifyError.responseCode,
+        });
 
-    const info = await transporter.sendMail({
-        from: `"SoilSync" <${emailFrom}>`,
-        to,
-        subject,
-        text,
-        html,
-        ...(emailReplyTo ? { replyTo: emailReplyTo } : {}),
-    });
-
-    console.log("SMTP email accepted:", {
-        messageId: info.messageId,
-        accepted: info.accepted,
-        rejected: info.rejected,
-        response: info.response,
-    });
-
-    if (!info.accepted || !info.accepted.includes(to)) {
-        throw new Error(`SMTP did not accept recipient ${to}. Rejected: ${JSON.stringify(info.rejected || [])}`);
+        throw verifyError;
     }
 
-    return info;
+    try {
+        console.log("Sending SMTP email...");
+
+        const info = await transporter.sendMail({
+            from: `"SoilSync" <${emailFrom}>`,
+            to,
+            subject,
+            text,
+            html,
+            ...(emailReplyTo ? { replyTo: emailReplyTo } : {}),
+        });
+
+        console.log("SMTP email accepted:", {
+            messageId: info.messageId,
+            accepted: info.accepted,
+            rejected: info.rejected,
+            response: info.response,
+        });
+
+        if (!info.accepted || !info.accepted.includes(to)) {
+            throw new Error(
+                `SMTP did not accept recipient ${to}. Rejected: ${JSON.stringify(info.rejected || [])}`
+            );
+        }
+
+        return info;
+    } catch (sendError) {
+        console.error("SMTP send failed:", {
+            message: sendError.message,
+            code: sendError.code,
+            command: sendError.command,
+            response: sendError.response,
+            responseCode: sendError.responseCode,
+        });
+
+        throw sendError;
+    }
 };
+
 const deliverEmail = async (payload) => {
-    assertEmailSenderConfigured();
     await sendWithSmtp(payload);
 };
 
