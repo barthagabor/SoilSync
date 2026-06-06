@@ -54,7 +54,7 @@ app.use("/api/premium", premiumRoutes);
 app.use("/api/community", communityRoutes);
 
 mongoose
-    .connect(process.env.MONGO_URI || "mongodb://127.0.0.1:27017/soilsync")
+    .connect(process.env.MONGO_URI)
     .then(() => console.log("âœ… MongoDB connected"))
     .catch((err) => console.error("âŒ MongoDB error:", err));
 
