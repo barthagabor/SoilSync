@@ -27,27 +27,27 @@ This repository includes:
 ### Important backend environment variables
 
 - `MONGO_URI`
-- `FRONTEND_URL`
-- `BACKEND_PUBLIC_URL`
 - `JWT_SECRET`
+
+For the first deployment without email flows, `FRONTEND_URL` and `BACKEND_PUBLIC_URL` can stay empty.
 
 ### Email options
 
-Recommended for free hosting:
+Recommended for free hosting later, after you own a sending domain:
 
 - `EMAIL_PROVIDER=resend`
 - `EMAIL_FROM=verified@your-domain.com`
 - `RESEND_API_KEY=...`
 
-If you do not want email verification in a demo deployment:
+For the simplest first deployment without email:
 
 - `REQUIRE_EMAIL_VERIFICATION=false`
 
-With that flag, new accounts are created as verified automatically.
+With that flag, new accounts are created as verified automatically, so `EMAIL_FROM`, `RESEND_API_KEY`, and `EMAIL_REPLY_TO` can stay empty for now.
 
 ### AI and media variables
 
-Only set these if you use the related features:
+Only set these if you want the related features to work immediately in production:
 
 - `GOOGLE_API_KEY` or `GEMINI_API_KEY`
 - `GOOGLE_GENAI_API_VERSION`

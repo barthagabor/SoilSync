@@ -12,29 +12,29 @@ services:
       - key: PORT
         value: "5000"
       - key: FRONTEND_URL
-        sync: false
+        value: ""
       - key: BACKEND_PUBLIC_URL
-        sync: false
+        value: ""
       - key: MONGO_URI
         sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: REQUIRE_EMAIL_VERIFICATION
-        value: "true"
+        value: "false"
       - key: EMAIL_PROVIDER
         value: resend
       - key: EMAIL_FROM
-        sync: false
+        value: ""
       - key: RESEND_API_KEY
-        sync: false
+        value: ""
       - key: EMAIL_REPLY_TO
-        sync: false
+        value: ""
       - key: GOOGLE_API_KEY
-        sync: false
+        value: ""
       - key: GEMINI_API_KEY
-        sync: false
+        value: ""
       - key: GOOGLE_GENAI_API_VERSION
-        sync: false
+        value: ""
       - key: PREMIUM_ASSISTANT_MODEL
         value: gemini-2.5-pro
       - key: GARDEN_SVG_MODEL
@@ -42,12 +42,12 @@ services:
       - key: PLANNER_IMAGE_MODEL
         value: gemini-3.1-flash-image-preview
       - key: CLOUDINARY_CLOUD_NAME
-        sync: false
+        value: ""
       - key: CLOUDINARY_API_KEY
-        sync: false
+        value: ""
       - key: CLOUDINARY_API_SECRET
-        sync: false
+        value: ""
       - key: EPPO_API_KEY
-        sync: false
+        value: ""
       - key: EPPO_BASE_URL
         value: https://api.eppo.int/gd/v2
