@@ -976,6 +976,13 @@ const spawnPythonScript = (scriptRelativePath, args = []) =>
 const buildXgbArgsFromPrefs = (prefs = {}, topK = 6) => {
     const args = ["--top-k", String(topK), "--queries", "20"];
 
+    const mongoUri = normalizeOptionValue(process.env.MONGO_URI) || "mongodb://127.0.0.1:27017/soilsync";
+    const mongoDatabase = normalizeOptionValue(mongoose.connection?.name) || "soilsync";
+
+    args.push("--mongo-uri", mongoUri);
+    args.push("--database", mongoDatabase);
+    args.push("--collection", "Perenual_Plants");
+
     if (normalizeOptionValue(prefs.watering)) args.push("--watering", String(prefs.watering));
     if (normalizeOptionValue(prefs.care_level)) args.push("--care-level", String(prefs.care_level));
     if (normalizeOptionValue(prefs.type)) args.push("--type", String(prefs.type));
@@ -1061,7 +1068,7 @@ const adaptXgbSummaryToFrontendResults = (summary = {}, prefs = {}) => {
         const reasons =
             Array.isArray(entry.demo_reasons) && entry.demo_reasons.length
                 ? entry.demo_reasons.map((reason) => String(reason).replace(/_/g, " "))
-                : ["Ranked highly by the XGBoost demo model"];
+                : ["Ranked highly by the recommendation engine"];
 
         return {
             _id: `xgb-${entry.id || index}`,
@@ -1074,7 +1081,7 @@ const adaptXgbSummaryToFrontendResults = (summary = {}, prefs = {}) => {
             why_it_fits: reasons,
             risk_flags: buildXgbRiskFlags(entry, prefs),
             breakdown: {
-                engine: "xgboost_demo",
+                engine: "recommendation_engine",
                 raw_model_score: Number.isFinite(rawScore) ? Number(rawScore.toFixed(6)) : null,
                 supported_preferences: supportedPreferences,
                 profile_used: summary.profile_used || {},
@@ -1089,7 +1096,7 @@ const adaptXgbSummaryToFrontendResults = (summary = {}, prefs = {}) => {
             medicinal: entry.medicinal === 1,
             pet_safe: entry.pet_safe === 1,
             model_score: Number.isFinite(rawScore) ? Number(rawScore.toFixed(6)) : null,
-            engine: "xgb_demo",
+            engine: "recommendation_engine",
         };
     });
 };
@@ -1111,14 +1118,14 @@ const runXgbPlantRecommender = async (req, res, { topK = 6 } = {}) => {
 
         pythonProcess.stderr.on("data", (data) => {
             errorData += data.toString();
-            console.error(`XGBoost recommender stderr: ${data}`);
+            console.error(`Recommendation engine stderr: ${data}`);
         });
 
         pythonProcess.on("error", (error) => {
-            console.error("XGBoost recommender spawn error:", error);
+            console.error("Recommendation engine spawn error:", error);
             if (!res.headersSent) {
                 res.status(500).json({
-                    message: "The XGBoost recommender could not be started.",
+                    message: "The recommendation engine could not be started.",
                     error: error.message,
                     pythonExecutable: PYTHON_EXECUTABLE,
                 });
@@ -1127,9 +1134,9 @@ const runXgbPlantRecommender = async (req, res, { topK = 6 } = {}) => {
 
         pythonProcess.on("close", async (code) => {
             if (code !== 0) {
-                console.error("XGBoost recommender exit code:", code);
+                console.error("Recommendation engine exit code:", code);
                 return res.status(500).json({
-                    message: "An error occurred while generating XGBoost recommendations.",
+                    message: "An error occurred while generating recommendations.",
                     error: errorData || resultData,
                 });
             }
@@ -1150,13 +1157,13 @@ const runXgbPlantRecommender = async (req, res, { topK = 6 } = {}) => {
                 );
                 res.json(enrichedResults);
             } catch (parseError) {
-                console.error("XGBoost recommender parse error:", resultData);
-                res.status(500).json({ message: "Invalid response from the XGBoost recommender engine." });
+                console.error("Recommendation engine parse error:", resultData);
+                res.status(500).json({ message: "Invalid response from the recommendation engine." });
             }
         });
     } catch (err) {
-        console.error("XGBoost recommender backend error:", err);
-        res.status(500).json({ message: "Server error while starting XGBoost recommendations." });
+        console.error("Recommendation engine backend error:", err);
+        res.status(500).json({ message: "Server error while generating recommendations." });
     }
 };
 

@@ -212,8 +212,8 @@ export default function Recommender() {
     const inputClass =
         "w-full rounded-[12px] border border-garden bg-greenLight px-3 py-2.5 text-[13px] text-greenDark outline-none transition focus:border-landingPageIcons focus:bg-white";
     const labelClass = "mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-greenMid";
-    const engineDescription = "ranked by the trained XGBoost demo model";
-    const loadingDescription = "The XGBoost demo model is scoring plants against your profile";
+    const engineDescription = "ranked by the current profile-based recommendation engine";
+    const loadingDescription = "The recommendation engine is scoring plants against your profile";
 
     const selectFields = [
         { name: "sunlight", label: <><Sun size={10} className="mr-1 inline" />Sunlight</>, options: options.sunlight },
@@ -272,13 +272,8 @@ export default function Recommender() {
                                     Recommendation Model
                                 </div>
                                 <div className="rounded-[12px] border border-landingPageIcons bg-greenLight px-3 py-2 text-left text-greenDark">
-                                    <div className="text-[13px] font-semibold">XGBoost Demo</div>
-                                    <div className="mt-1 text-[11px] leading-4">Trained ranking model</div>
+                                    <div className="text-[13px] font-semibold">Recommendation Engine</div>
                                 </div>
-                                <p className="mt-3 text-[11px] leading-5 text-greenMid">
-                                    The current XGBoost demo learns from <strong>watering, care level, type, cycle,
-                                    hardiness zone, pet safe</strong>, and <strong>medicinal use</strong>.
-                                </p>
                             </div>
 
                             <div className="mb-3 grid grid-cols-2 gap-3">

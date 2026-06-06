@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 from pathlib import Path
@@ -60,9 +61,9 @@ except ImportError as exc:
 
 
 RANDOM_SEED = 42
-DEFAULT_MONGO_URI = "mongodb://127.0.0.1:27017/"
-DEFAULT_DB_NAME = "soilsync"
-DEFAULT_COLLECTION = "Perenual_Plants"
+DEFAULT_MONGO_URI = os.environ.get("MONGO_URI", "mongodb://127.0.0.1:27017/soilsync")
+DEFAULT_DB_NAME = os.environ.get("MONGO_DB_NAME", "soilsync")
+DEFAULT_COLLECTION = os.environ.get("MONGO_COLLECTION", "Perenual_Plants")
 
 SUPPORTED_PREFS = (
     "watering",
