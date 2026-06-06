@@ -112,6 +112,48 @@ const splitCommaSeparatedValues = (value) =>
         .map((entry) => normalizeOptionValue(entry))
         .filter(Boolean);
 
+const buildPlantGuideSections = (plant) => {
+    const details = plant?.details || {};
+    const sections = [];
+
+    if (details.watering) {
+        sections.push({
+            type: "watering",
+            description: `Watering requirement: ${details.watering}.`,
+        });
+    }
+
+    if (Array.isArray(details.sunlight) && details.sunlight.length) {
+        sections.push({
+            type: "sunlight",
+            description: `Preferred light exposure: ${details.sunlight.join(", ")}.`,
+        });
+    }
+
+    if (Array.isArray(details.pruning_month) && details.pruning_month.length) {
+        sections.push({
+            type: "pruning",
+            description: `Recommended pruning months: ${details.pruning_month.join(", ")}.`,
+        });
+    }
+
+    if (Array.isArray(details.propagation) && details.propagation.length) {
+        sections.push({
+            type: "propagation",
+            description: `Propagation methods: ${details.propagation.join(", ")}.`,
+        });
+    }
+
+    if (details.maintenance) {
+        sections.push({
+            type: "maintenance",
+            description: `Maintenance level: ${details.maintenance}.`,
+        });
+    }
+
+    return sections;
+};
+
 const escapeRegexLiteral = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const buildStoredPlantImage = (source) => {
@@ -1134,27 +1176,31 @@ const REGION_MAPPING = {
 // ðŸŒ± NÃ¶vÃ©nyek listÃ¡zÃ¡sa szÅ±rÃ©ssel
 app.get("/admin/users", authenticateToken, requireAdmin, async (req, res) => {
     try {
-        const users = await User.find({})
-            .select("name email profileImage verified role systemRole subscriptionPlan premiumStatus premiumActivatedAt premiumExpiresAt location createdAt favourites savedGardens")
-            .sort({ createdAt: -1 });
-
-        const normalizedUsers = users.map((user) => ({
-            _id: user._id,
-            name: user.name,
-            email: user.email,
-            profileImage: user.profileImage || "",
-            verified: Boolean(user.verified),
-            role: user.role || "Gardener",
-            systemRole: user.systemRole || "user",
-            subscriptionPlan: user.subscriptionPlan || "free",
-            premiumStatus: user.premiumStatus || "inactive",
-            premiumActivatedAt: user.premiumActivatedAt || null,
-            premiumExpiresAt: user.premiumExpiresAt || null,
-            location: user.location || "",
-            createdAt: user.createdAt,
-            favouritesCount: Array.isArray(user.favourites) ? user.favourites.length : 0,
-            savedGardensCount: Array.isArray(user.savedGardens) ? user.savedGardens.length : 0,
-        }));
+        const normalizedUsers = await User.aggregate([
+            {
+                $project: {
+                    name: 1,
+                    email: 1,
+                    profileImage: 1,
+                    verified: 1,
+                    role: 1,
+                    systemRole: 1,
+                    subscriptionPlan: 1,
+                    premiumStatus: 1,
+                    premiumActivatedAt: 1,
+                    premiumExpiresAt: 1,
+                    location: 1,
+                    createdAt: 1,
+                    favouritesCount: {
+                        $size: { $ifNull: ["$favourites", []] },
+                    },
+                    savedGardensCount: {
+                        $size: { $ifNull: ["$savedGardens", []] },
+                    },
+                },
+            },
+            { $sort: { createdAt: -1 } },
+        ]);
 
         res.json({
             users: normalizedUsers,
@@ -1871,6 +1917,25 @@ app.get("/plants/:id", async (req, res) => {
     } catch (err) {
         console.error("âŒ Error fetching plant details:", err);
         res.status(500).json({ message: "Server error while fetching plant details." });
+    }
+});
+
+app.get("/plants/:id/guides", async (req, res) => {
+    try {
+        const { id } = req.params;
+        const plant = await PerenualPlant.findOne({ id: Number(id) }, { details: 1 }).lean();
+
+        if (!plant) {
+            return res.status(404).json({ message: "Plant not found" });
+        }
+
+        const section = buildPlantGuideSections(plant);
+        res.json({
+            data: section.length ? [{ section }] : [],
+        });
+    } catch (err) {
+        console.error("Error fetching plant guides:", err);
+        res.status(500).json({ message: "Server error while fetching plant guides." });
     }
 });
 

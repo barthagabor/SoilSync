@@ -23,15 +23,11 @@ function extractKingdom(taxonomy) {
     return taxonomy.find((item) => String(item?.type || "").toLowerCase() === "kingdom") || null;
 }
 
-async function run() {
-    const eppoCode = normalizeEppoCode(process.argv[2]);
-
+export async function syncTaxonByCode(eppoCodeInput) {
+    const eppoCode = normalizeEppoCode(eppoCodeInput);
     if (!eppoCode) {
-        console.error("Usage: node scripts/syncEppoTaxonByCode.js <EPPOCODE>");
-        process.exit(1);
+        throw new Error("Usage: node scripts/syncEppoTaxonByCode.js <EPPOCODE>");
     }
-
-    await mongoose.connect(MONGO_URI);
 
     const syncRun = await EppoSyncRun.create({
         jobType: "sync_taxa",
@@ -94,12 +90,33 @@ async function run() {
         syncRun.errorItems = [{ message: error.message, eppoCode }];
         await syncRun.save();
         throw error;
+    }
+}
+
+async function run() {
+    const eppoCode = normalizeEppoCode(process.argv[2]);
+
+    if (!eppoCode) {
+        console.error("Usage: node scripts/syncEppoTaxonByCode.js <EPPOCODE>");
+        process.exit(1);
+    }
+
+    await mongoose.connect(MONGO_URI);
+
+    try {
+        await syncTaxonByCode(eppoCode);
     } finally {
         await mongoose.disconnect();
     }
 }
 
-run().catch((error) => {
-    console.error("Failed to sync EPPO taxon:", error.message);
-    process.exit(1);
-});
+const isDirectRun =
+    process.argv[1] &&
+    path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectRun) {
+    run().catch((error) => {
+        console.error("Failed to sync EPPO taxon:", error.message);
+        process.exit(1);
+    });
+}
