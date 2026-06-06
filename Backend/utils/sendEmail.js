@@ -1,4 +1,3 @@
-import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 import { colors } from "../config/colors.js";
 
@@ -11,38 +10,11 @@ const normalizeEnvValue = (value) => {
 
 const trimTrailingSlash = (value) => normalizeEnvValue(value).replace(/\/+$/, "");
 
-const parseBooleanEnv = (value, fallback) => {
-    const normalized = normalizeEnvValue(value).toLowerCase();
-    if (!normalized) return fallback;
-    if (["1", "true", "yes", "on"].includes(normalized)) return true;
-    if (["0", "false", "no", "off"].includes(normalized)) return false;
-    return fallback;
-};
+const emailProvider = normalizeEnvValue(process.env.EMAIL_PROVIDER || "brevo").toLowerCase();
 
-const emailProvider = normalizeEnvValue(process.env.EMAIL_PROVIDER || "smtp").toLowerCase();
-
-const emailFrom = normalizeEnvValue(process.env.EMAIL_FROM) || normalizeEnvValue(process.env.EMAIL_USER);
-const emailReplyTo = normalizeEnvValue(process.env.EMAIL_REPLY_TO);
-
-const smtpHost = normalizeEnvValue(process.env.EMAIL_HOST) || "smtp.gmail.com";
-const smtpPort = Number(normalizeEnvValue(process.env.EMAIL_PORT) || 465);
-const smtpSecure = parseBooleanEnv(process.env.EMAIL_SECURE, smtpPort === 465);
-
-const smtpUser = normalizeEnvValue(process.env.EMAIL_USER);
-const smtpPass = normalizeEnvValue(process.env.EMAIL_PASS);
-
-const transporter = nodemailer.createTransport({
-    host: smtpHost,
-    port: smtpPort,
-    secure: smtpSecure,
-    auth: {
-        user: smtpUser,
-        pass: smtpPass,
-    },
-    connectionTimeout: 15000,
-    greetingTimeout: 15000,
-    socketTimeout: 20000,
-});
+const emailFrom = normalizeEnvValue(process.env.EMAIL_FROM);
+const emailFromName = normalizeEnvValue(process.env.EMAIL_FROM_NAME) || "SoilSync";
+const brevoApiKey = normalizeEnvValue(process.env.BREVO_API_KEY);
 
 const resolveBackendPublicUrl = () =>
     trimTrailingSlash(process.env.BACKEND_PUBLIC_URL) ||
@@ -53,89 +25,79 @@ const resolveFrontendPublicUrl = () =>
     trimTrailingSlash(process.env.FRONTEND_URL) || "http://localhost:5173";
 
 const assertEmailSenderConfigured = () => {
-    if (!emailFrom) {
-        throw new Error("Email delivery is not configured. Set EMAIL_FROM or EMAIL_USER.");
+    if (emailProvider !== "brevo") {
+        throw new Error("Email delivery is configured for Brevo API only. Set EMAIL_PROVIDER=brevo.");
     }
 
-    if (!smtpUser || !smtpPass) {
-        throw new Error("SMTP email delivery is not configured. Set EMAIL_USER and EMAIL_PASS.");
+    if (!brevoApiKey) {
+        throw new Error("Brevo email delivery is not configured. Set BREVO_API_KEY.");
+    }
+
+    if (!emailFrom) {
+        throw new Error("Email delivery is not configured. Set EMAIL_FROM.");
     }
 };
 
 export const isEmailDeliveryConfigured = () => {
-    return Boolean(emailFrom && smtpUser && smtpPass);
+    return emailProvider === "brevo" && Boolean(brevoApiKey && emailFrom);
 };
 
-const sendWithSmtp = async ({ to, subject, text, html }) => {
+const sendWithBrevo = async ({ to, subject, text, html }) => {
     assertEmailSenderConfigured();
 
-    console.log("SMTP config:", {
+    console.log("Brevo email config:", {
         provider: emailProvider,
-        host: smtpHost,
-        port: smtpPort,
-        secure: smtpSecure,
-        user: smtpUser,
         from: emailFrom,
+        fromName: emailFromName,
         to,
+        subject,
     });
 
-    try {
-        console.log("Verifying SMTP connection...");
-        await transporter.verify();
-        console.log("SMTP connection verified.");
-    } catch (verifyError) {
-        console.error("SMTP verify failed:", {
-            message: verifyError.message,
-            code: verifyError.code,
-            command: verifyError.command,
-            response: verifyError.response,
-            responseCode: verifyError.responseCode,
-        });
-
-        throw verifyError;
-    }
-
-    try {
-        console.log("Sending SMTP email...");
-
-        const info = await transporter.sendMail({
-            from: `"SoilSync" <${emailFrom}>`,
-            to,
+    const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+        method: "POST",
+        headers: {
+            "accept": "application/json",
+            "api-key": brevoApiKey,
+            "content-type": "application/json",
+        },
+        body: JSON.stringify({
+            sender: {
+                name: emailFromName,
+                email: emailFrom,
+            },
+            to: [
+                {
+                    email: to,
+                },
+            ],
             subject,
-            text,
-            html,
-            ...(emailReplyTo ? { replyTo: emailReplyTo } : {}),
+            htmlContent: html,
+            textContent: text,
+        }),
+    });
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+        console.error("Brevo email failed:", {
+            status: response.status,
+            statusText: response.statusText,
+            body: responseText,
         });
 
-        console.log("SMTP email accepted:", {
-            messageId: info.messageId,
-            accepted: info.accepted,
-            rejected: info.rejected,
-            response: info.response,
-        });
-
-        if (!info.accepted || !info.accepted.includes(to)) {
-            throw new Error(
-                `SMTP did not accept recipient ${to}. Rejected: ${JSON.stringify(info.rejected || [])}`
-            );
-        }
-
-        return info;
-    } catch (sendError) {
-        console.error("SMTP send failed:", {
-            message: sendError.message,
-            code: sendError.code,
-            command: sendError.command,
-            response: sendError.response,
-            responseCode: sendError.responseCode,
-        });
-
-        throw sendError;
+        throw new Error(`Brevo email failed with status ${response.status}: ${responseText}`);
     }
+
+    console.log("Brevo email sent:", {
+        status: response.status,
+        body: responseText,
+    });
+
+    return responseText;
 };
 
 const deliverEmail = async (payload) => {
-    await sendWithSmtp(payload);
+    await sendWithBrevo(payload);
 };
 
 export async function sendVerificationEmail(email, token) {
