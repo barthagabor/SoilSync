@@ -1192,10 +1192,18 @@ app.get("/admin/users", authenticateToken, requireAdmin, async (req, res) => {
                     location: 1,
                     createdAt: 1,
                     favouritesCount: {
-                        $size: { $ifNull: ["$favourites", []] },
+                        $cond: {
+                            if: { $isArray: "$favourites" },
+                            then: { $size: "$favourites" },
+                            else: 0,
+                        },
                     },
                     savedGardensCount: {
-                        $size: { $ifNull: ["$savedGardens", []] },
+                        $cond: {
+                            if: { $isArray: "$savedGardens" },
+                            then: { $size: "$savedGardens" },
+                            else: 0,
+                        },
                     },
                 },
             },
