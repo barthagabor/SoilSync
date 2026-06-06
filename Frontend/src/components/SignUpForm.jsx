@@ -39,8 +39,8 @@ export default function SignUpForm() {
         if (!validateEmail(email)) { setError("Please enter a valid email address!"); return; }
         if (!validatePassword(password)) { setError("Password must be at least 6 characters with uppercase and lowercase letters."); return; }
         try {
-            await registerUserRequest({ name, email, password });
-            setSuccess("Registration successful! Please check your email to verify your account.");
+            const response = await registerUserRequest({ name, email, password });
+            setSuccess(response?.message || "Registration successful! You can now log in.");
             setName(""); setEmail(""); setPassword("");
             setTimeout(() => setSuccess(""), 5000);
         } catch (err) {

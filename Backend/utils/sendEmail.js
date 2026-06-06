@@ -54,6 +54,19 @@ const assertEmailSenderConfigured = () => {
     }
 };
 
+export const isEmailDeliveryConfigured = () => {
+    if (!emailFrom) return false;
+
+    if (emailProvider === "resend") {
+        return Boolean(normalizeEnvValue(process.env.RESEND_API_KEY));
+    }
+
+    return Boolean(
+        normalizeEnvValue(process.env.EMAIL_USER) &&
+        normalizeEnvValue(process.env.EMAIL_PASS)
+    );
+};
+
 const sendWithSmtp = async ({ to, subject, text, html }) => {
     if (!normalizeEnvValue(process.env.EMAIL_USER) || !normalizeEnvValue(process.env.EMAIL_PASS)) {
         throw new Error("SMTP email delivery is not configured. Set EMAIL_USER and EMAIL_PASS.");
