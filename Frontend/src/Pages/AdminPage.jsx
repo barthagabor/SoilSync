@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { Crown, ImagePlus, Leaf, PlusCircle, Search, ShieldCheck, Sprout, UserCog, Users, X } from "lucide-react";
+import { Crown, ImagePlus, Leaf, PlusCircle, Search, ShieldCheck, Sprout, UserCog, Users, X ,Trash2} from "lucide-react";
 import Navbar from "../components/Navbar";
 import { useAuth } from "../context/AuthContext";
 import { usePageScrollRestoration, useSessionStorageState } from "../hooks/usePagePersistence";
@@ -89,6 +89,7 @@ export default function AdminPage() {
     const [draftRoles, setDraftRoles] = useState({});
     const [savingUserId, setSavingUserId] = useState(null);
     const [savingSubscriptionUserId, setSavingSubscriptionUserId] = useState(null);
+    const [deletingUserId, setDeletingUserId] = useState(null);
 
     const [plants, setPlants] = useState([]);
     const [plantsLoading, setPlantsLoading] = useState(true);
@@ -237,7 +238,54 @@ export default function AdminPage() {
             setSavingSubscriptionUserId(null);
         }
     };
+    const handleDeleteUser = async (targetUser) => {
+        const confirmed = window.confirm(
+            `Delete ${targetUser.name || targetUser.email}? This will remove the account, favourites, saved gardens, community posts, comments, likes, and saved community references.`
+        );
 
+        if (!confirmed) return;
+
+        try {
+            setDeletingUserId(targetUser._id);
+            setUserNotice({ text: "", type: "" });
+
+            const token = localStorage.getItem("token");
+
+            const res = await fetch(buildUrl(`/admin/users/${targetUser._id}`), {
+                method: "DELETE",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+
+            const data = await res.json().catch(() => ({}));
+
+            if (!res.ok) {
+                throw new Error(data.message || "Failed to delete user.");
+            }
+
+            setUsers((prev) => prev.filter((entry) => entry._id !== targetUser._id));
+
+            setDraftRoles((prev) => {
+                const next = { ...prev };
+                delete next[targetUser._id];
+                return next;
+            });
+
+            setUserNotice({
+                text: data.message || "User deleted successfully.",
+                type: "success",
+            });
+        } catch (error) {
+            console.error("Failed to delete user:", error);
+            setUserNotice({
+                text: error.message || "Failed to delete user.",
+                type: "error",
+            });
+        } finally {
+            setDeletingUserId(null);
+        }
+    };
     const updateCreatePlantField = (key, value) => {
         setCreatePlantNotice({ text: "", type: "" });
         setCreatePlantForm((prev) => ({ ...prev, [key]: value }));
@@ -652,6 +700,7 @@ export default function AdminPage() {
                                                 >
                                                     {savingUserId === entry._id ? "Saving..." : "Update Role"}
                                                 </button>
+
                                             </div>
                                             <button
                                                 onClick={() =>
@@ -673,6 +722,18 @@ export default function AdminPage() {
                                                     : entry.subscriptionPlan === "premium" && entry.premiumStatus === "active"
                                                         ? "Disable Premium"
                                                         : "Enable Premium"}
+                                            </button>
+                                            <button
+                                                onClick={() => handleDeleteUser(entry)}
+                                                disabled={
+                                                    deletingUserId === entry._id ||
+                                                    String(user?._id) === String(entry._id) ||
+                                                    entry.systemRole === "superadmin"
+                                                }
+                                                className="inline-flex items-center gap-2 rounded-2xl bg-[#fff2f0] px-4 py-3 text-sm font-semibold text-[#b64035] transition hover:bg-[#ffe4e0] disabled:cursor-not-allowed disabled:opacity-60"
+                                            >
+                                                <Trash2 size={15} />
+                                                {deletingUserId === entry._id ? "Deleting..." : "Delete User"}
                                             </button>
                                         </div>
                                     ) : <div className="rounded-2xl border border-[#dbe6cf] bg-white px-4 py-3 text-sm text-greenMid">Only a superadmin can change roles.</div>}

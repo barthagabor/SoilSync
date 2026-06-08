@@ -1,5 +1,9 @@
 import User from "../models/User.js";
 import PerenualPlant from "../models/PerenualPlant.js";
+import mongoose from "mongoose";
+import CommunityPost from "../models/CommunityPost.js";
+import CommunityComment from "../models/CommunityComment.js";
+
 import {
     buildStoredPlantImage,
     canonicalizeCareLevel,
@@ -336,5 +340,158 @@ export const updatePlantCatalogStatus = async (req, res) => {
     } catch (err) {
         console.error("Error updating plant catalog status:", err);
         res.status(500).json({ message: "Error updating plant catalog status." });
+    }
+};
+
+
+const recalculateCommentCounts = async (postIds = []) => {
+    const uniquePostIds = [
+        ...new Set(
+            postIds
+                .map((postId) => String(postId || ""))
+                .filter((postId) => mongoose.Types.ObjectId.isValid(postId))
+        ),
+    ];
+
+    await Promise.all(
+        uniquePostIds.map(async (postId) => {
+            const count = await CommunityComment.countDocuments({ post: postId });
+            await CommunityPost.updateOne(
+                { _id: postId },
+                { $set: { commentsCount: count } }
+            );
+        })
+    );
+};
+
+const recalculateLikeCounts = async () => {
+    await Promise.all([
+        CommunityPost.updateMany({}, [
+            {
+                $set: {
+                    likesCount: {
+                        $size: {
+                            $ifNull: ["$likes", []],
+                        },
+                    },
+                },
+            },
+        ]),
+        CommunityComment.updateMany({}, [
+            {
+                $set: {
+                    likesCount: {
+                        $size: {
+                            $ifNull: ["$likes", []],
+                        },
+                    },
+                },
+            },
+        ]),
+    ]);
+};
+
+export const deleteUserBySuperAdmin = async (req, res) => {
+    try {
+        const { targetUserId } = req.params;
+        const currentUserId = req.user?.userId;
+
+        if (!mongoose.Types.ObjectId.isValid(targetUserId)) {
+            return res.status(400).json({ message: "Invalid user id." });
+        }
+
+        if (String(currentUserId) === String(targetUserId)) {
+            return res.status(400).json({
+                message: "You cannot delete your own account from the admin panel.",
+            });
+        }
+
+        const targetUser = await User.findById(targetUserId).select(
+            "_id name email systemRole"
+        );
+
+        if (!targetUser) {
+            return res.status(404).json({ message: "User not found." });
+        }
+
+        if (targetUser.systemRole === "superadmin") {
+            return res.status(403).json({
+                message: "Superadmin accounts cannot be deleted from the admin panel.",
+            });
+        }
+
+        const targetObjectId = new mongoose.Types.ObjectId(targetUserId);
+
+        const postsByUser = await CommunityPost.find({ author: targetObjectId }).select("_id");
+        const postIdsByUser = postsByUser.map((post) => post._id);
+
+        const commentsByUserOnRemainingPosts = await CommunityComment.find({
+            author: targetObjectId,
+            post: { $nin: postIdsByUser },
+        }).select("post");
+
+        const affectedRemainingPostIds = commentsByUserOnRemainingPosts.map(
+            (comment) => comment.post
+        );
+
+        const deletedCommentsOnDeletedPosts = await CommunityComment.deleteMany({
+            post: { $in: postIdsByUser },
+        });
+
+        const deletedCommentsByUser = await CommunityComment.deleteMany({
+            author: targetObjectId,
+        });
+
+        const deletedPosts = await CommunityPost.deleteMany({
+            author: targetObjectId,
+        });
+
+        await User.updateMany(
+            {},
+            {
+                $pull: {
+                    savedCommunityPosts: { $in: postIdsByUser },
+                },
+            }
+        );
+
+        await CommunityPost.updateMany(
+            { likes: targetObjectId },
+            { $pull: { likes: targetObjectId } }
+        );
+
+        await CommunityComment.updateMany(
+            { likes: targetObjectId },
+            { $pull: { likes: targetObjectId } }
+        );
+
+        await CommunityPost.updateMany(
+            { solvedBy: targetObjectId },
+            {
+                $set: {
+                    solved: false,
+                    solvedBy: null,
+                },
+            }
+        );
+
+        await recalculateCommentCounts(affectedRemainingPostIds);
+        await recalculateLikeCounts();
+
+        await User.deleteOne({ _id: targetObjectId });
+
+        res.json({
+            message: "User and related content deleted successfully.",
+            deletedUserId: targetUserId,
+            deletedPosts: deletedPosts.deletedCount || 0,
+            deletedComments:
+                (deletedCommentsOnDeletedPosts.deletedCount || 0) +
+                (deletedCommentsByUser.deletedCount || 0),
+        });
+    } catch (error) {
+        console.error("Delete user error:", error);
+        res.status(500).json({
+            message: error.message || "Failed to delete user.",
+        });
     }
 };
