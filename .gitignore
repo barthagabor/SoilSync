@@ -14,6 +14,8 @@ europe_garden_plants_seed_*.json
 europe_garden_plants_seed_*.html
 europe_garden_plants_seed_*.image_download_report.json
 Backend/exports/
+Backend/.cache/
+Backend/scripts/__pycache__/
 Backend/test_optimized_*.jpg
 Backend/top8_roses_*.json
 Backend/scripts/gemini-native-image.png

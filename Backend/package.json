@@ -21,7 +21,8 @@
     "eppo:sync:distributions:pests": "node scripts/syncPestDistributions.js",
     "community:seed": "node scripts/seedCommunityDemo.js",
     "plants:export:recommendable": "node scripts/exportRecommendablePlants.js",
-    "users:set-role": "node scripts/setUserSystemRole.js"
+    "users:set-role": "node scripts/setUserSystemRole.js",
+    "recommender:xgb:train": "node scripts/runXgbTrainingCache.js"
   },
   "dependencies": {
     "@google/genai": "^1.46.0",
