@@ -231,7 +231,7 @@ export default function Recommender() {
 
     return (
         <div
-            className="min-h-screen px-6 pb-16 pt-28 font-dm"
+            className="min-h-screen px-4 pb-12 pt-24 font-dm sm:px-6 sm:pb-16 sm:pt-28"
             style={{
                 backgroundColor: "#f5f6f0",
                 backgroundImage:
@@ -249,7 +249,7 @@ export default function Recommender() {
             </div>
 
             <div className="mx-auto grid max-w-[1280px] items-start gap-6 xl:grid-cols-[360px_1fr]">
-                <div className="sticky top-[90px] overflow-hidden rounded-[24px] border border-greenBorder bg-white shadow-green-md">
+                <div className="overflow-hidden rounded-[24px] border border-greenBorder bg-white shadow-green-md xl:sticky xl:top-[90px]">
                     <div className="relative overflow-hidden px-6 py-5" style={{ background: "linear-gradient(135deg, #2d4a0a, #3F620F)" }}>
                         <div className="absolute bottom-[-30px] right-[-30px] h-[100px] w-[100px] rounded-full bg-white/[0.06]" />
                         <div className="relative z-10 flex items-center justify-between">
@@ -265,7 +265,7 @@ export default function Recommender() {
                         </div>
                     </div>
 
-                    <div className="p-6">
+                    <div className="p-4 sm:p-6">
                         <form onSubmit={handleSubmit}>
                             <div className="mb-4 rounded-[16px] border border-greenBorder bg-[#fbfcf8] p-3.5">
                                 <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-greenMid">
@@ -276,7 +276,7 @@ export default function Recommender() {
                                 </div>
                             </div>
 
-                            <div className="mb-3 grid grid-cols-2 gap-3">
+                            <div className="mb-3 grid gap-3 sm:grid-cols-2">
                                 {selectFields.map((field) => (
                                     <div key={field.name}>
                                         <label className={labelClass}>{field.label}</label>
@@ -357,7 +357,7 @@ export default function Recommender() {
                     </div>
                 </div>
 
-                <div>
+                <div className="min-w-0">
                     {error && (
                         <div className="mb-4 rounded-xl border border-[#fecaca] bg-[#fef2f2] px-4 py-3 text-[14px] text-red-600">
                             {error}
@@ -376,8 +376,8 @@ export default function Recommender() {
                         </div>
                     ) : results && results.length > 0 ? (
                         <div className="flex flex-col gap-4">
-                            <div className="mb-1 flex items-center justify-between border-b border-greenBorder pb-4">
-                                <div className="flex items-center gap-2.5">
+                            <div className="mb-1 flex flex-col gap-3 border-b border-greenBorder pb-4 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="flex flex-wrap items-center gap-2.5">
                                     <span className="rounded-full bg-garden px-4 py-1 text-[13px] font-semibold text-landingPageIcons">
                                         Top {visibleGroups.length} diverse matches
                                     </span>

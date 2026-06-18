@@ -262,6 +262,77 @@ const normalizeGardenDesignPreferences = (input = {}) => {
     return design;
 };
 
+const GARDEN_PHOTO_VALIDATION_KINDS = new Set(["garden_photo", "not_garden_photo", "unclear"]);
+
+const normalizeGardenPhotoValidation = (payload = {}) => {
+    const normalizedKind = normalizeOptionValue(payload?.kind);
+    const kind = GARDEN_PHOTO_VALIDATION_KINDS.has(normalizedKind) ? normalizedKind : "unclear";
+    const confidence =
+        typeof payload?.confidence === "number" && Number.isFinite(payload.confidence)
+            ? Math.max(0, Math.min(1, payload.confidence))
+            : 0;
+    const reason =
+        typeof payload?.reason === "string"
+            ? payload.reason.replace(/\s+/g, " ").trim().slice(0, 140)
+            : "";
+
+    return {
+        kind,
+        confidence,
+        reason,
+    };
+};
+
+const classifyUploadedGardenPhoto = async ({ ai, uploadedReferencePart }) => {
+    const modelName =
+        normalizeOptionValue(process.env.PLANNER_REFERENCE_ANALYSIS_MODEL) ||
+        normalizeOptionValue(process.env.PREMIUM_ASSISTANT_MODEL) ||
+        "gemini-2.5-flash";
+    const prompt = `Classify the attached image for a garden planner photo-edit feature. Return JSON only.
+
+Choose exactly one kind:
+- "garden_photo": a real photo of a garden, yard, patio, balcony, terrace, courtyard, greenhouse, sunroom, or planted residential space that can be edited as the literal scene.
+- "not_garden_photo": cartoons, illustrations, screenshots, memes, posters, character art, logos, product renders, portraits, pets, cars, arbitrary non-garden scenes, or any stylized/non-photographic image that should not be accepted here.
+- "unclear": cannot tell confidently.
+
+Return JSON in exactly this shape:
+{
+  "kind": "garden_photo",
+  "confidence": 0.91,
+  "reason": ""
+}
+
+Rules:
+- confidence must be between 0 and 1.
+- reason must be short, under 16 words.
+- Prefer "not_garden_photo" for obvious animated, stylized, illustrated, meme, screenshot, or non-garden images.
+- Prefer "garden_photo" only when the image clearly looks like a real garden or planted home space photo.`.trim();
+
+    try {
+        const response = await ai.models.generateContent({
+            model: modelName,
+            contents: [
+                {
+                    role: "user",
+                    parts: [
+                        { text: prompt },
+                        { text: "Attached uploaded image to validate." },
+                        uploadedReferencePart,
+                    ],
+                },
+            ],
+            config: {
+                responseMimeType: "application/json",
+            },
+        });
+
+        return normalizeGardenPhotoValidation(parseJsonModelOutput(response));
+    } catch (error) {
+        console.warn("Planner garden-photo validation failed:", error?.message || error);
+        return normalizeGardenPhotoValidation();
+    }
+};
+
 const COMPACT_SPACE_TYPES = new Set(["balcony", "patio_terrace", "indoor_corner", "indoor_sunroom", "courtyard"]);
 
 const getSpaceConstraintGuidance = (spaceType) => {
@@ -972,14 +1043,15 @@ app.post("/api/generate-photorealistic-garden", authenticateToken, async (req, r
             Math.max(1, Number.parseInt(String(variationCount || 1), 10) || 1)
         );
         const variationPrompts = [
-            "Variation direction: balanced and straightforward home-garden composition.",
-            "Variation direction: slightly different planting layout with a fresh visual arrangement.",
-            "Variation direction: an alternative but still realistic composition using the same selected plants.",
+            "Variation direction: keep the same selected plants and design brief, but use a balanced and straightforward home-garden composition.",
+            "Variation direction: keep the same selected plants and design brief, but shift to a noticeably different planting layout and fresh visual arrangement.",
+            "Variation direction: keep the same selected plants and design brief, but explore an alternative composition with different grouping and spacing while staying believable.",
         ];
         let lastError = null;
         const generatedImages = [];
         const ai = createGoogleGenAIClient();
         let uploadedGardenPhotoPart = null;
+        let uploadedGardenPhotoValidation = normalizeGardenPhotoValidation();
 
         if (uploadedGardenPhoto) {
             try {
@@ -989,6 +1061,22 @@ app.post("/api/generate-photorealistic-garden", authenticateToken, async (req, r
                 );
             } catch {
                 return res.status(400).json({ error: "Ervenytelen feltoltott kertfoto." });
+            }
+        }
+
+        if (uploadedGardenPhotoPart) {
+            uploadedGardenPhotoValidation = await classifyUploadedGardenPhoto({
+                ai,
+                uploadedReferencePart: uploadedGardenPhotoPart,
+            });
+
+            if (
+                uploadedGardenPhotoValidation.kind === "not_garden_photo" &&
+                uploadedGardenPhotoValidation.confidence >= 0.55
+            ) {
+                return res.status(400).json({
+                    error: "Upload a real garden photo only. Cartoons, screenshots, memes, character art, and stylized images are not supported in this mode.",
+                });
             }
         }
 
@@ -1095,7 +1183,7 @@ app.post("/api/generate-photorealistic-garden", authenticateToken, async (req, r
             imageBase64: generatedImages[0],
             images: generatedImages,
             variationCount: generatedImages.length,
-            generationMode: "plant_only",
+            generationMode: uploadedGardenPhotoPart ? "scene_edit" : "plant_only",
         });
     } catch (error) {
         console.error("Garden generation error:", error);

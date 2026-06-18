@@ -229,7 +229,9 @@ export default function GardenDrawer() {
         setGeneratedImages(nextGeneratedImages);
         setActiveVariationIndex(Number.isFinite(plannerSeed.activeVariationIndex) ? plannerSeed.activeVariationIndex : 0);
         setGardenImage(nextGardenImage);
-        setGeneratedFromReferencePhoto(Boolean(plannerSeed.generatedFromReferencePhoto));
+        setGeneratedFromReferencePhoto(
+            Boolean(plannerSeed.generatedFromReferencePhoto || plannerSeed.generationReferenceMode === 'scene_photo')
+        );
         setComparePosition(50);
         setShowPlantGuide(false);
         setPlantGuide([]);
@@ -330,11 +332,11 @@ export default function GardenDrawer() {
     const previewCopy = showBeforeAfterSlider
         ? 'Drag the slider to compare your original garden photo with the Gemini-edited version.'
         : gardenImage
-        ? usesReferencePhoto
+        ? generatedFromReferencePhoto
             ? 'Gemini edited your uploaded garden photo with the plants you selected.'
             : 'This version was generated from your selected plants.'
         : usesReferencePhoto
-            ? 'This is the garden photo that will be used as the base scene for plant placement.'
+            ? 'Upload only a real garden photo of the space you want to edit.'
             : 'Choose the plants you want to see, then generate a garden concept from those species only.';
 
     const guideMarkers = useMemo(
@@ -955,7 +957,7 @@ export default function GardenDrawer() {
                                 Generate from plants or edit your own photo
                             </h2>
                             <p className="text-greenMid leading-relaxed mb-8">
-                                Keep it simple: choose your plants, then either generate a fresh garden scene or upload your own garden photo and let Gemini place the plants into it.
+                                Keep it simple: choose your plants, then either generate a fresh garden scene or upload your own real garden photo and let Gemini place the plants into it.
                             </p>
 
                             <div className="mb-8 flex flex-wrap gap-3">
@@ -1054,6 +1056,13 @@ export default function GardenDrawer() {
                                                 disabled={photoPreparing}
                                             />
                                         </label>
+                                    </div>
+
+                                    <div className="mt-4 rounded-[18px] border border-[#f0d2d2] bg-[#fff7f5] px-4 py-3 text-sm text-[#91533f]">
+                                        <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.16em] text-[#b75a45]">
+                                            Garden Photo Only
+                                        </div>
+                                        Upload only a real garden photo of the space you want to edit.
                                     </div>
 
                                     {referenceGardenPhoto && (
@@ -1216,24 +1225,6 @@ export default function GardenDrawer() {
                                                     </div>
                                                 </div>
 
-                                                <div className="grid gap-3 sm:grid-cols-2">
-                                                    <div className="rounded-[18px] border border-[#dce7cf] bg-[#f7faf2] px-4 py-3">
-                                                        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-greenMid mb-2">
-                                                            Good Example
-                                                        </div>
-                                                        <p className="text-sm text-greenDark">
-                                                            Keep the existing path, use fewer plant species, and make it look easier to recreate on a normal budget.
-                                                        </p>
-                                                    </div>
-                                                    <div className="rounded-[18px] border border-[#f0d2d2] bg-[#fff7f5] px-4 py-3">
-                                                        <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-[#b75a45] mb-2">
-                                                            Avoid
-                                                        </div>
-                                                        <p className="text-sm text-[#91533f]">
-                                                            Luxury resort garden, masterpiece, cinematic, 8K, ultra-detailed, exotic plants everywhere.
-                                                        </p>
-                                                    </div>
-                                                </div>
                                             </div>
                                         </div>
                                     </div>
