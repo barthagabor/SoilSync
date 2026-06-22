@@ -10,7 +10,19 @@ const shouldRequireEmailVerification = () => process.env.REQUIRE_EMAIL_VERIFICAT
 const isEmailVerificationActive = () => shouldRequireEmailVerification() && isEmailDeliveryConfigured();
 const normalizeEmail = (value) => String(value || "").trim().toLowerCase();
 const normalizeName = (value) => String(value || "").trim();
+const normalizeOptionalText = (value) => (value === undefined ? undefined : String(value || "").trim());
 const isDuplicateKeyError = (error) => Number(error?.code) === 11000;
+const sanitizeUserPayload = (user) => {
+    if (!user) return null;
+
+    const payload = typeof user.toObject === "function" ? user.toObject() : { ...user };
+    delete payload.password;
+    delete payload.verificationToken;
+    delete payload.resetToken;
+    delete payload.passwordResetToken;
+    delete payload.passwordResetExpires;
+    return payload;
+};
 
 export const registerUser = async (req, res) => {
     const { name, email, password } = req.body;
@@ -224,17 +236,54 @@ export const getUserProfile = async (req, res) => {
 
 export const updateUserProfile = async (req, res) => {
     try {
-        const { name, bio, location, profileImage } = req.body;
+        const { name, bio, location, profileImage, currentPassword, newPassword } = req.body || {};
         const user = await User.findById(req.user.userId);
 
-        if (name) user.name = name;
-        if (bio) user.bio = bio;
-        if (location) user.location = location;
-        if (profileImage) user.profileImage = profileImage;
+        if (!user) {
+            return res.status(404).json({ message: "User not found." });
+        }
+
+        const normalizedName = normalizeOptionalText(name);
+        const normalizedBio = normalizeOptionalText(bio);
+        const normalizedLocation = normalizeOptionalText(location);
+        const normalizedProfileImage = normalizeOptionalText(profileImage);
+        const normalizedCurrentPassword = String(currentPassword || "");
+        const normalizedNewPassword = String(newPassword || "");
+        const passwordUpdateRequested = Boolean(normalizedCurrentPassword || normalizedNewPassword);
+
+        if (normalizedName !== undefined && !normalizedName) {
+            return res.status(400).json({ message: "Name cannot be empty." });
+        }
+
+        if (passwordUpdateRequested) {
+            if (!normalizedCurrentPassword || !normalizedNewPassword) {
+                return res.status(400).json({ message: "Current password and new password are both required." });
+            }
+
+            if (normalizedNewPassword.length < 8) {
+                return res.status(400).json({ message: "New password must be at least 8 characters long." });
+            }
+
+            const isCurrentPasswordValid = await bcrypt.compare(normalizedCurrentPassword, user.password);
+            if (!isCurrentPasswordValid) {
+                return res.status(401).json({ message: "Current password is incorrect." });
+            }
+
+            user.password = normalizedNewPassword;
+        }
+
+        if (normalizedName !== undefined) user.name = normalizedName;
+        if (normalizedBio !== undefined) user.bio = normalizedBio;
+        if (normalizedLocation !== undefined) user.location = normalizedLocation;
+        if (normalizedProfileImage !== undefined) user.profileImage = normalizedProfileImage;
 
         await ensureCommunityIdentity(user);
         await user.save();
-        res.json({ message: "Profile updated successfully!", user });
+
+        res.json({
+            message: passwordUpdateRequested ? "Profile and password updated successfully!" : "Profile updated successfully!",
+            user: sanitizeUserPayload(user),
+        });
     } catch (err) {
         res.status(500).json({ message: "Error updating profile." });
     }

@@ -1,6 +1,7 @@
 import express from "express";
 import {
     createAdminPlant,
+    deleteAdminPlant,
     getAdminPlants,
     getAdminUsers,
     updatePlantCatalogStatus,
@@ -17,6 +18,7 @@ router.patch("/users/:userId/subscription", authenticateToken, requireSuperAdmin
 router.get("/plants", authenticateToken, requireAdmin, getAdminPlants);
 router.post("/plants", authenticateToken, requireAdmin, createAdminPlant);
 router.patch("/plants/:id/catalog-status", authenticateToken, requireAdmin, updatePlantCatalogStatus);
+router.delete("/plants/:id", authenticateToken, requireAdmin, deleteAdminPlant);
 router.delete("/users/:targetUserId", authenticateToken, requireSuperAdmin, deleteUserBySuperAdmin
 );
 export default router;

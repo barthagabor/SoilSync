@@ -74,9 +74,27 @@ const COMMUNITY_AVATAR_TONES = [
 const COMMUNITY_USER_SELECT =
     "name email profileImage bio location systemRole subscriptionPlan premiumStatus createdAt savedGardens communityUsername";
 const COMMUNITY_USER_SELECT_WITH_FAVOURITES = `${COMMUNITY_USER_SELECT} favourites`;
+const COMMUNITY_FEED_FILTER_TYPE_MAP = {
+    questions: "question",
+    gardens: "garden-showcase",
+    tips: "plant-tip",
+    progress: "progress-update",
+};
+const DEFAULT_COMMUNITY_FEED_LIMIT = 10;
+const MAX_COMMUNITY_FEED_LIMIT = 24;
 
 const normalizeText = (value) => String(value || "").trim();
-const normalizeSearch = (value) => normalizeText(value).toLowerCase();
+const escapeRegex = (value) => String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const createCaseInsensitiveRegex = (value) => {
+    const normalized = normalizeText(value);
+    if (!normalized) return null;
+    return new RegExp(escapeRegex(normalized), "i");
+};
+const clampPositiveInteger = (value, fallback, maximum = Number.MAX_SAFE_INTEGER) => {
+    const parsed = Number.parseInt(String(value || ""), 10);
+    if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+    return Math.min(parsed, maximum);
+};
 
 const getPrimaryScientificName = (plant) => {
     if (Array.isArray(plant?.scientific_name)) {
@@ -400,62 +418,84 @@ const ensureCommunityIdentityForUsers = async (users = []) => {
     await Promise.all(uniqueUsers.map((user) => ensureCommunityIdentity(user, { save: true })));
 };
 
-const filterPostsInMemory = (posts, { activeFilter = "all", searchTerm = "", activeTag = "", location = "" } = {}) => {
-    const normalizedSearch = normalizeSearch(searchTerm);
-    const locationTerms = getLocationFragments(location).map((entry) => normalizeSearch(entry));
+const getTopicAliases = (topicOrTag) => {
+    const normalizedTag = normalizeTag(topicOrTag);
+    if (!normalizedTag) return [];
 
-    return posts.filter((post) => {
-        if (activeFilter === "questions" && post.type !== "question") return false;
-        if (activeFilter === "gardens" && post.type !== "garden-showcase") return false;
-        if (activeFilter === "tips" && post.type !== "plant-tip") return false;
-        if (activeFilter === "progress" && post.type !== "progress-update") return false;
-        if (activeFilter === "local") {
-            const normalizedRegion = normalizeSearch(post.region);
-            const hasRegionalMatch = locationTerms.some((term) => term && normalizedRegion.includes(term));
-            if (!post.isLocal && !hasRegionalMatch) return false;
-        }
-
-        if (activeTag) {
-            const hasTagMatch = (post.tags || []).some((tag) => normalizeSearch(tag) === normalizeSearch(activeTag));
-            if (!hasTagMatch) return false;
-        }
-
-        if (normalizedSearch) {
-            const searchableText = [
-                post.title,
-                post.body,
-                post.author?.name,
-                post.author?.username,
-                post.region,
-                ...(post.tags || []),
-                ...(post.plants || []).flatMap((plant) => [plant.name, plant.latinName]),
-            ]
-                .filter(Boolean)
-                .join(" ")
-                .toLowerCase();
-
-            if (!searchableText.includes(normalizedSearch)) return false;
-        }
-
-        return true;
-    });
+    return [...new Set((COMMUNITY_TOPIC_ALIASES[normalizedTag] || [normalizedTag]).map((tag) => normalizeTag(tag)).filter(Boolean))];
 };
 
-const getTrendingTopics = (posts, limit = 5) => {
-    const counts = new Map();
+const buildCommunityTopicCountQuery = (topicSlug) => {
+    const aliases = getTopicAliases(topicSlug);
+    if (!aliases.length) return { _id: null };
+    return { tags: { $in: aliases } };
+};
 
-    posts.forEach((post) => {
-        (post.tags || []).forEach((tag) => {
-            const normalizedTag = normalizeTag(tag);
-            if (!normalizedTag) return;
-            counts.set(normalizedTag, (counts.get(normalizedTag) || 0) + 1);
+const resolveCommunitySearchAuthorIds = async (searchTerm = "") => {
+    const searchRegex = createCaseInsensitiveRegex(searchTerm);
+    if (!searchRegex) return [];
+
+    const authorDocs = await User.find({
+        $or: [{ name: searchRegex }, { communityUsername: searchRegex }],
+    })
+        .select("_id")
+        .limit(25)
+        .lean();
+
+    return authorDocs.map((author) => author._id).filter(Boolean);
+};
+
+const buildCommunityFeedQuery = async ({
+    activeFilter = "all",
+    searchTerm = "",
+    activeTag = "",
+    location = "",
+} = {}) => {
+    const andClauses = [];
+    const mappedType = COMMUNITY_FEED_FILTER_TYPE_MAP[normalizeText(activeFilter).toLowerCase()];
+
+    if (mappedType) {
+        andClauses.push({ type: mappedType });
+    } else if (normalizeText(activeFilter).toLowerCase() === "local") {
+        const regionClauses = getLocationFragments(location)
+            .map((fragment) => createCaseInsensitiveRegex(fragment))
+            .filter(Boolean)
+            .map((regex) => ({ region: regex }));
+
+        andClauses.push({
+            $or: [{ isLocal: true }, ...regionClauses],
         });
-    });
+    }
 
-    return [...counts.entries()]
-        .sort((left, right) => right[1] - left[1])
-        .slice(0, limit)
-        .map(([name, count]) => ({ name, count }));
+    const tagAliases = getTopicAliases(activeTag);
+    if (tagAliases.length) {
+        andClauses.push({ tags: { $in: tagAliases } });
+    }
+
+    const searchRegex = createCaseInsensitiveRegex(searchTerm);
+    if (searchRegex) {
+        const authorIds = await resolveCommunitySearchAuthorIds(searchTerm);
+        const orClauses = [
+            { title: searchRegex },
+            { body: searchRegex },
+            { region: searchRegex },
+            { tags: searchRegex },
+            { "plants.name": searchRegex },
+            { "plants.latinName": searchRegex },
+        ];
+
+        if (authorIds.length) {
+            orClauses.push({ author: { $in: authorIds } });
+        }
+
+        andClauses.push({ $or: orClauses });
+    }
+
+    if (!andClauses.length) {
+        return {};
+    }
+
+    return andClauses.length === 1 ? andClauses[0] : { $and: andClauses };
 };
 
 const getTopicCards = (posts) =>
@@ -467,6 +507,48 @@ const getTopicCards = (posts) =>
             )
         ).length,
     }));
+
+const getCommunityFeedAnalytics = async () => {
+    const [topicCounts, trendingTagCounts, totalPosts, memberIds, sharedGardens, localNotes] = await Promise.all([
+        Promise.all(
+            COMMUNITY_TOPIC_DEFINITIONS.map((topic) => CommunityPost.countDocuments(buildCommunityTopicCountQuery(topic.slug)))
+        ),
+        CommunityPost.aggregate([
+            { $unwind: "$tags" },
+            {
+                $group: {
+                    _id: "$tags",
+                    count: { $sum: 1 },
+                },
+            },
+            { $sort: { count: -1, _id: 1 } },
+            { $limit: 5 },
+        ]),
+        CommunityPost.countDocuments({}),
+        CommunityPost.distinct("author"),
+        CommunityPost.countDocuments({ "savedGarden.image": { $exists: true, $ne: "" } }),
+        CommunityPost.countDocuments({ isLocal: true }),
+    ]);
+
+    return {
+        topicCards: COMMUNITY_TOPIC_DEFINITIONS.map((topic, index) => ({
+            ...topic,
+            postCount: Number(topicCounts[index] || 0),
+        })),
+        trendingTopics: trendingTagCounts
+            .map((entry) => ({
+                name: normalizeTag(entry?._id),
+                count: Number(entry?.count || 0),
+            }))
+            .filter((entry) => entry.name),
+        summary: {
+            posts: Number(totalPosts || 0),
+            members: Array.isArray(memberIds) ? memberIds.length : 0,
+            sharedGardens: Number(sharedGardens || 0),
+            localNotes: Number(localNotes || 0),
+        },
+    };
+};
 
 const getSuggestedMembers = async (excludeUserId = null, limit = 4) => {
     const recentPosts = await CommunityPost.find({})
@@ -527,13 +609,33 @@ export const getCommunityFeed = async ({
     activeTag = "",
     location = "",
     currentUserId = null,
+    page = 1,
+    limit = DEFAULT_COMMUNITY_FEED_LIMIT,
 } = {}) => {
-    const postDocs = await CommunityPost.find({})
+    const normalizedPage = clampPositiveInteger(page, 1);
+    const normalizedLimit = clampPositiveInteger(limit, DEFAULT_COMMUNITY_FEED_LIMIT, MAX_COMMUNITY_FEED_LIMIT);
+    const skip = (normalizedPage - 1) * normalizedLimit;
+    const feedQuery = await buildCommunityFeedQuery({
+        activeFilter,
+        searchTerm,
+        activeTag,
+        location,
+    });
+
+    const [totalPosts, postDocs, analytics, suggestedMembers] = await Promise.all([
+        CommunityPost.countDocuments(feedQuery),
+        CommunityPost.find(feedQuery)
         .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(normalizedLimit)
         .populate("author", COMMUNITY_USER_SELECT)
         .populate("solvedBy", COMMUNITY_USER_SELECT)
-        .exec();
+        .exec(),
+        getCommunityFeedAnalytics(),
+        getSuggestedMembers(currentUserId, 4),
+    ]);
 
+    const totalPages = totalPosts > 0 ? Math.ceil(totalPosts / normalizedLimit) : 1;
     const usersToEnsure = [];
     postDocs.forEach((post) => {
         if (post.author) usersToEnsure.push(post.author);
@@ -547,25 +649,20 @@ export const getCommunityFeed = async ({
     ]);
     const serializationOptions = { currentUserId, savedPostIdSet };
     const serializedPosts = postDocs.map((post) => serializePost(post, statMaps, serializationOptions));
-    const filteredPosts = filterPostsInMemory(serializedPosts, {
-        activeFilter,
-        searchTerm,
-        activeTag,
-        location,
-    });
-
-    const [suggestedMembers] = await Promise.all([getSuggestedMembers(currentUserId, 4)]);
 
     return {
-        posts: filteredPosts,
-        trendingTopics: getTrendingTopics(serializedPosts),
-        topicCards: getTopicCards(serializedPosts),
+        posts: serializedPosts,
+        trendingTopics: analytics.trendingTopics,
+        topicCards: analytics.topicCards,
         suggestedMembers,
-        summary: {
-            posts: serializedPosts.length,
-            members: new Set(serializedPosts.map((post) => post.author?.id).filter(Boolean)).size,
-            sharedGardens: serializedPosts.filter((post) => post.savedGarden).length,
-            localNotes: serializedPosts.filter((post) => post.isLocal).length,
+        summary: analytics.summary,
+        pagination: {
+            page: normalizedPage,
+            limit: normalizedLimit,
+            totalPosts,
+            totalPages,
+            hasNextPage: normalizedPage < totalPages,
+            hasPreviousPage: normalizedPage > 1,
         },
     };
 };

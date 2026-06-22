@@ -18,6 +18,8 @@ export const fetchCommunityFeed = async (req, res) => {
             activeTag: req.query.tag || "",
             location: req.query.location || "",
             currentUserId: req.user?.userId || null,
+            page: req.query.page || 1,
+            limit: req.query.limit || 10,
         });
 
         res.json(data);

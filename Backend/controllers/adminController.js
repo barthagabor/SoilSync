@@ -1,5 +1,6 @@
 import User from "../models/User.js";
 import PerenualPlant from "../models/PerenualPlant.js";
+import PlantEppoLink from "../models/PlantEppoLink.js";
 import mongoose from "mongoose";
 import CommunityPost from "../models/CommunityPost.js";
 import CommunityComment from "../models/CommunityComment.js";
@@ -340,6 +341,51 @@ export const updatePlantCatalogStatus = async (req, res) => {
     } catch (err) {
         console.error("Error updating plant catalog status:", err);
         res.status(500).json({ message: "Error updating plant catalog status." });
+    }
+};
+
+export const deleteAdminPlant = async (req, res) => {
+    try {
+        const plantId = Number(req.params.id);
+        if (!Number.isFinite(plantId)) {
+            return res.status(400).json({ message: "Invalid plant id." });
+        }
+
+        const plant = await PerenualPlant.findOne({ id: plantId }).select("_id id common_name scientific_name");
+        if (!plant) {
+            return res.status(404).json({ message: "Plant not found." });
+        }
+
+        await Promise.all([
+            User.updateMany(
+                { favourites: plantId },
+                {
+                    $pull: {
+                        favourites: plantId,
+                    },
+                }
+            ),
+            PlantEppoLink.deleteMany({
+                $or: [{ perenualPlantId: plantId }, { perenualMongoId: plant._id }],
+            }),
+            PerenualPlant.deleteOne({ _id: plant._id }),
+        ]);
+
+        res.json({
+            message: "Plant deleted successfully.",
+            deletedPlant: {
+                id: plantId,
+                common_name: plant.common_name || "",
+                scientific_name: Array.isArray(plant.scientific_name)
+                    ? plant.scientific_name
+                    : plant.scientific_name
+                        ? [plant.scientific_name]
+                        : [],
+            },
+        });
+    } catch (err) {
+        console.error("Error deleting admin plant:", err);
+        res.status(500).json({ message: "Error deleting plant." });
     }
 };
 

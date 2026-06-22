@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { Crown, ImagePlus, Leaf, PlusCircle, Search, ShieldCheck, Sprout, UserCog, Users, X ,Trash2} from "lucide-react";
+import { Crown, ImagePlus, Leaf, PlusCircle, Search, ShieldCheck, Sprout, Trash2, UserCog, Users, X } from "lucide-react";
 import Navbar from "../components/Navbar";
 import { useAuth } from "../context/AuthContext";
 import { usePageScrollRestoration, useSessionStorageState } from "../hooks/usePagePersistence";
@@ -101,8 +101,10 @@ export default function AdminPage() {
     const [plantTotal, setPlantTotal] = useState(0);
     const [plantTotalPages, setPlantTotalPages] = useState(1);
     const [plantRefreshKey, setPlantRefreshKey] = useState(0);
+    const [plantNotice, setPlantNotice] = useState({ text: "", type: "" });
     const [createPlantForm, setCreatePlantForm] = useSessionStorageState("page:admin:create-plant-form", () => ({ ...EMPTY_PLANT_FORM }));
     const [creatingPlant, setCreatingPlant] = useState(false);
+    const [deletingPlantId, setDeletingPlantId] = useState(null);
 
     usePageScrollRestoration("page:admin", !usersLoading && !plantsLoading);
 
@@ -370,6 +372,49 @@ export default function AdminPage() {
             setCreatePlantNotice({ text: err.message || "Failed to create plant.", type: "error" });
         } finally {
             setCreatingPlant(false);
+        }
+    };
+
+    const handleDeletePlant = async (plant) => {
+        const plantLabel = plant.common_name || plant.scientific_name?.[0] || `Plant #${plant.id}`;
+        const confirmed = window.confirm(
+            `Delete ${plantLabel}? This removes it from the live plant catalog and cleans it out of user favourites. Saved garden and community snapshots will stay as historical records.`
+        );
+
+        if (!confirmed) return;
+
+        try {
+            setDeletingPlantId(plant.id);
+            setPlantNotice({ text: "", type: "" });
+
+            const token = localStorage.getItem("token");
+            const res = await fetch(buildUrl(`/admin/plants/${plant.id}`), {
+                method: "DELETE",
+                headers: {
+                    Authorization: `Bearer ${token}`,
+                },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || "Failed to delete plant.");
+
+            setPlantNotice({
+                text: data.message || `${plantLabel} deleted successfully.`,
+                type: "success",
+            });
+
+            if (plants.length === 1 && plantPage > 1) {
+                setPlantPage((prev) => Math.max(1, prev - 1));
+            } else {
+                setPlantRefreshKey((prev) => prev + 1);
+            }
+        } catch (err) {
+            console.error("Failed to delete plant:", err);
+            setPlantNotice({
+                text: err.message || "Failed to delete plant.",
+                type: "error",
+            });
+        } finally {
+            setDeletingPlantId(null);
         }
     };
 
@@ -747,11 +792,15 @@ export default function AdminPage() {
                     <div className="flex flex-wrap items-start justify-between gap-5">
                         <div>
                             <SectionHeader icon={Sprout} badge="Plant Catalog" title="Plant Catalog Review" />
-                            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-greenMid">Search the imported database and review the imported records in a cleaner read-only list.</p>
+                            <p className="mt-3 max-w-2xl text-sm leading-relaxed text-greenMid">Search the imported database and manage live catalog entries from the same admin view.</p>
                         </div>
                         <div className="grid gap-3 sm:grid-cols-1">
                             <StatCard label="Results" value={plantTotal} />
                         </div>
+                    </div>
+
+                    <div className="mt-6">
+                        <Notice notice={plantNotice} />
                     </div>
 
                     <form
@@ -823,6 +872,17 @@ export default function AdminPage() {
                                                     {plant.details?.type ? <Chip>{plant.details.type}</Chip> : null}
                                                     {plant.details?.cycle ? <Chip>{plant.details.cycle}</Chip> : null}
                                                     {plant.details?.watering ? <Chip>{plant.details.watering}</Chip> : null}
+                                                </div>
+                                                <div className="mt-5 flex flex-wrap items-center gap-3">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDeletePlant(plant)}
+                                                        disabled={deletingPlantId === plant.id}
+                                                        className="inline-flex items-center gap-2 rounded-2xl bg-[#fff2f0] px-4 py-3 text-sm font-semibold text-[#b64035] transition hover:bg-[#ffe4e0] disabled:cursor-not-allowed disabled:opacity-60"
+                                                    >
+                                                        <Trash2 size={15} />
+                                                        {deletingPlantId === plant.id ? "Deleting..." : "Delete Plant"}
+                                                    </button>
                                                 </div>
                                             </div>
                                         </div>

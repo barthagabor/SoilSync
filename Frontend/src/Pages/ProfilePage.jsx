@@ -123,6 +123,9 @@ export default function ProfilePage() {
     const [removingGardenId, setRemovingGardenId] = useState(null);
     const [savedGardensOpen, setSavedGardensOpen] = useSessionStorageState("page:profile:saved-gardens-expanded", false);
     const [favouritesOpen, setFavouritesOpen] = useSessionStorageState("page:profile:favourites-expanded", false);
+    const [currentPassword, setCurrentPassword] = useState("");
+    const [newPassword, setNewPassword] = useState("");
+    const [confirmPassword, setConfirmPassword] = useState("");
 
     usePageScrollRestoration("page:profile", !favLoading && !savedGardensLoading);
 
@@ -211,20 +214,54 @@ export default function ProfilePage() {
         reader.readAsDataURL(file);
     };
 
+    const clearPasswordInputs = () => {
+        setCurrentPassword("");
+        setNewPassword("");
+        setConfirmPassword("");
+    };
+
     const handleSave = async () => {
-        setLoading(true);
         setMessage({ text: "", type: "" });
+
+        const trimmedName = String(name || "").trim();
+        const hasPasswordChanges = Boolean(currentPassword || newPassword || confirmPassword);
+
+        if (!trimmedName) {
+            setMessage({ text: "Name cannot be empty.", type: "error" });
+            return;
+        }
+
+        if (hasPasswordChanges) {
+            if (!currentPassword || !newPassword || !confirmPassword) {
+                setMessage({ text: "Fill in all password fields to change your password.", type: "error" });
+                return;
+            }
+
+            if (newPassword.length < 8) {
+                setMessage({ text: "New password must be at least 8 characters long.", type: "error" });
+                return;
+            }
+
+            if (newPassword !== confirmPassword) {
+                setMessage({ text: "New password and confirmation do not match.", type: "error" });
+                return;
+            }
+        }
+
+        setLoading(true);
 
         try {
             const token = localStorage.getItem("token");
             const data = await updateUserProfileRequest(token, {
-                name,
+                name: trimmedName,
                 bio,
                 location,
                 profileImage: imagePreview,
+                ...(hasPasswordChanges ? { currentPassword, newPassword } : {}),
             });
             updateUser(data.user);
-            setMessage({ text: "Profile updated successfully.", type: "success" });
+            clearPasswordInputs();
+            setMessage({ text: data?.message || "Profile updated successfully.", type: "success" });
             setIsEditing(false);
             setTimeout(() => setMessage({ text: "", type: "" }), 3000);
         } catch (err) {
@@ -240,6 +277,7 @@ export default function ProfilePage() {
         setBio(user.bio || "");
         setLocation(user.location || "");
         setImagePreview(user.profileImage || "");
+        clearPasswordInputs();
         setIsEditing(false);
         setMessage({ text: "", type: "" });
     };
@@ -499,6 +537,49 @@ export default function ProfilePage() {
                                         Email
                                     </div>
                                     <p className="break-all text-sm font-semibold text-greenDark">{user.email}</p>
+                                </div>
+
+                                <div className="rounded-[24px] border border-[#dbe6cf] bg-white p-5">
+                                    <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-greenMid">
+                                        <ShieldCheck size={13} />
+                                        Password
+                                    </div>
+
+                                    {isEditing ? (
+                                        <div className="space-y-3">
+                                            <input
+                                                type="password"
+                                                value={currentPassword}
+                                                onChange={(e) => setCurrentPassword(e.target.value)}
+                                                placeholder="Current password"
+                                                autoComplete="current-password"
+                                                className="w-full rounded-2xl border border-[#d3e0c3] bg-[#f8fbf3] px-4 py-3 text-sm text-greenDark outline-none transition focus:border-landingPageIcons focus:bg-white"
+                                            />
+                                            <input
+                                                type="password"
+                                                value={newPassword}
+                                                onChange={(e) => setNewPassword(e.target.value)}
+                                                placeholder="New password (minimum 8 characters)"
+                                                autoComplete="new-password"
+                                                className="w-full rounded-2xl border border-[#d3e0c3] bg-[#f8fbf3] px-4 py-3 text-sm text-greenDark outline-none transition focus:border-landingPageIcons focus:bg-white"
+                                            />
+                                            <input
+                                                type="password"
+                                                value={confirmPassword}
+                                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                                placeholder="Confirm new password"
+                                                autoComplete="new-password"
+                                                className="w-full rounded-2xl border border-[#d3e0c3] bg-[#f8fbf3] px-4 py-3 text-sm text-greenDark outline-none transition focus:border-landingPageIcons focus:bg-white"
+                                            />
+                                            <p className="text-xs leading-relaxed text-greenMid">
+                                                Leave the password fields empty if you only want to update your profile details.
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm leading-relaxed text-greenDark">
+                                            Open edit mode to change your password. For security, SoilSync asks for your current password before saving a new one.
+                                        </p>
+                                    )}
                                 </div>
 
                                 <div className="rounded-[24px] border border-[#dbe6cf] bg-white p-5">

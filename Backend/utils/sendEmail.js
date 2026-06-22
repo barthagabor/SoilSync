@@ -10,11 +10,15 @@ const normalizeEnvValue = (value) => {
 
 const trimTrailingSlash = (value) => normalizeEnvValue(value).replace(/\/+$/, "");
 
-const emailProvider = normalizeEnvValue(process.env.EMAIL_PROVIDER || "brevo").toLowerCase();
+const EMAIL_PROVIDER_RESEND = "resend";
+const EMAIL_PROVIDER_BREVO = "brevo";
+const emailProvider = normalizeEnvValue(process.env.EMAIL_PROVIDER || EMAIL_PROVIDER_RESEND).toLowerCase();
 
 const emailFrom = normalizeEnvValue(process.env.EMAIL_FROM);
 const emailFromName = normalizeEnvValue(process.env.EMAIL_FROM_NAME) || "SoilSync";
 const brevoApiKey = normalizeEnvValue(process.env.BREVO_API_KEY);
+const resendApiKey = normalizeEnvValue(process.env.RESEND_API_KEY);
+const emailReplyTo = normalizeEnvValue(process.env.EMAIL_REPLY_TO);
 
 const resolveBackendPublicUrl = () =>
     trimTrailingSlash(process.env.BACKEND_PUBLIC_URL) ||
@@ -24,29 +28,41 @@ const resolveBackendPublicUrl = () =>
 const resolveFrontendPublicUrl = () =>
     trimTrailingSlash(process.env.FRONTEND_URL) || "http://localhost:5173";
 
-const assertEmailSenderConfigured = () => {
-    if (emailProvider !== "brevo") {
-        throw new Error("Email delivery is configured for Brevo API only. Set EMAIL_PROVIDER=brevo.");
+const assertEmailSenderConfigured = (provider = emailProvider) => {
+    if (!emailFrom) {
+        throw new Error("Email delivery is not configured. Set EMAIL_FROM.");
     }
 
-    if (!brevoApiKey) {
+    if (provider === EMAIL_PROVIDER_RESEND && !resendApiKey) {
+        throw new Error("Resend email delivery is not configured. Set RESEND_API_KEY.");
+    }
+
+    if (provider === EMAIL_PROVIDER_BREVO && !brevoApiKey) {
         throw new Error("Brevo email delivery is not configured. Set BREVO_API_KEY.");
     }
 
-    if (!emailFrom) {
-        throw new Error("Email delivery is not configured. Set EMAIL_FROM.");
+    if (![EMAIL_PROVIDER_RESEND, EMAIL_PROVIDER_BREVO].includes(provider)) {
+        throw new Error("Unsupported email provider. Set EMAIL_PROVIDER to resend or brevo.");
     }
 };
 
 export const isEmailDeliveryConfigured = () => {
-    return emailProvider === "brevo" && Boolean(brevoApiKey && emailFrom);
+    if (emailProvider === EMAIL_PROVIDER_RESEND) {
+        return Boolean(resendApiKey && emailFrom);
+    }
+
+    if (emailProvider === EMAIL_PROVIDER_BREVO) {
+        return Boolean(brevoApiKey && emailFrom);
+    }
+
+    return false;
 };
 
 const sendWithBrevo = async ({ to, subject, text, html }) => {
-    assertEmailSenderConfigured();
+    assertEmailSenderConfigured(EMAIL_PROVIDER_BREVO);
 
     console.log("Brevo email config:", {
-        provider: emailProvider,
+        provider: EMAIL_PROVIDER_BREVO,
         from: emailFrom,
         fromName: emailFromName,
         to,
@@ -96,8 +112,69 @@ const sendWithBrevo = async ({ to, subject, text, html }) => {
     return responseText;
 };
 
+const sendWithResend = async ({ to, subject, text, html }) => {
+    assertEmailSenderConfigured(EMAIL_PROVIDER_RESEND);
+
+    const headers = {
+        Authorization: `Bearer ${resendApiKey}`,
+        "Content-Type": "application/json",
+    };
+    const replyTo = emailReplyTo || undefined;
+
+    console.log("Resend email config:", {
+        provider: EMAIL_PROVIDER_RESEND,
+        from: emailFrom,
+        fromName: emailFromName,
+        to,
+        subject,
+        hasReplyTo: Boolean(replyTo),
+    });
+
+    const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+            from: emailFromName ? `${emailFromName} <${emailFrom}>` : emailFrom,
+            to: [to],
+            subject,
+            html,
+            text,
+            reply_to: replyTo,
+        }),
+    });
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+        console.error("Resend email failed:", {
+            status: response.status,
+            statusText: response.statusText,
+            body: responseText,
+        });
+
+        throw new Error(`Resend email failed with status ${response.status}: ${responseText}`);
+    }
+
+    console.log("Resend email sent:", {
+        status: response.status,
+        body: responseText,
+    });
+
+    return responseText;
+};
+
 const deliverEmail = async (payload) => {
-    await sendWithBrevo(payload);
+    if (emailProvider === EMAIL_PROVIDER_RESEND) {
+        await sendWithResend(payload);
+        return;
+    }
+
+    if (emailProvider === EMAIL_PROVIDER_BREVO) {
+        await sendWithBrevo(payload);
+        return;
+    }
+
+    throw new Error("Unsupported email provider. Set EMAIL_PROVIDER to resend or brevo.");
 };
 
 export async function sendVerificationEmail(email, token) {
